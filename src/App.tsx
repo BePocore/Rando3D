@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Compass,
+  List,
   LocateFixed,
   LoaderCircle,
   Mountain,
   TriangleAlert,
+  X,
 } from 'lucide-react'
 import './App.css'
 import { BasemapControl } from './components/BasemapControl'
@@ -125,6 +127,7 @@ const exportablePoints = (points: TrailPoint[]): TrailPoint[] => {
 
 function App() {
   const [isStudioMode] = useState(() => isStudioUrl())
+  const [isPanelOpen, setIsPanelOpen] = useState(() => isStudioUrl())
   const [track, setTrack] = useState<TrackPoint[]>([])
   const [points, setPoints] = useState<TrailPoint[]>([])
   const [mediaLibrary, setMediaLibrary] = useState<ImportedMedia[]>([])
@@ -206,6 +209,11 @@ function App() {
 
   const handleSelectPoint = useCallback((point: TrailPoint) => {
     setSelectedPoint(point)
+    setIsPanelOpen(true)
+  }, [])
+
+  const handleClosePoint = useCallback(() => {
+    setSelectedPoint(null)
   }, [])
 
   const handleBasemapChange = useCallback((nextBasemap: BasemapId) => {
@@ -306,6 +314,7 @@ function App() {
       if (autoPoints.length > 0) {
         setPoints((current) => [...current, ...autoPoints])
         setSelectedPoint(autoPoints[0])
+        setIsPanelOpen(true)
       }
     }
 
@@ -315,6 +324,7 @@ function App() {
   const handleAddPoint = useCallback((point: TrailPoint) => {
     setPoints((current) => [...current, point])
     setSelectedPoint(point)
+    setIsPanelOpen(true)
   }, [])
 
   const handleUpdatePoint = useCallback((point: TrailPoint) => {
@@ -322,6 +332,7 @@ function App() {
       current.map((item) => (item.id === point.id ? point : item)),
     )
     setSelectedPoint(point)
+    setIsPanelOpen(true)
   }, [])
 
   const handleDeletePoint = useCallback((pointId: string) => {
@@ -361,7 +372,7 @@ function App() {
   }, [points, pointsSourceName, track, trackSourceName])
 
   return (
-    <div className="app-shell">
+    <div className={isStudioMode ? 'app-shell studio-mode' : 'app-shell'}>
       <header className="topbar">
         <div className="brand">
           <span className="brand-icon">
@@ -389,7 +400,11 @@ function App() {
         </div>
       ) : null}
 
-      <main className="map-layout">
+      <main
+        className={
+          isPanelOpen ? 'map-layout mobile-panel-open' : 'map-layout'
+        }
+      >
         <section className="map-stage" aria-label="Carte 3D interactive">
           <div className="terrain-badge">
             <Mountain aria-hidden="true" size={16} />
@@ -411,6 +426,20 @@ function App() {
           >
             <LocateFixed aria-hidden="true" size={16} />
             <span>Recentrer</span>
+          </button>
+          <button
+            aria-label={
+              isStudioMode
+                ? 'Ouvrir le studio'
+                : 'Ouvrir les points de passage'
+            }
+            className="map-panel-button"
+            title={isStudioMode ? 'Studio' : 'Points'}
+            type="button"
+            onClick={() => setIsPanelOpen(true)}
+          >
+            <List aria-hidden="true" size={16} />
+            <span>{isStudioMode ? 'Studio' : 'Points'}</span>
           </button>
 
           {isLoading ? (
@@ -438,6 +467,15 @@ function App() {
           className="detail-panel"
           aria-label={isStudioMode ? 'Studio de création' : 'Détails'}
         >
+          <button
+            aria-label="Masquer le panneau"
+            className="mobile-panel-close"
+            title="Masquer le panneau"
+            type="button"
+            onClick={() => setIsPanelOpen(false)}
+          >
+            <X aria-hidden="true" size={18} />
+          </button>
           {isStudioMode ? (
             <StudioPanel
               selectedPoint={selectedPoint}
@@ -448,7 +486,7 @@ function App() {
               trackSourceName={trackSourceName}
               pointsSourceName={pointsSourceName}
               onSelectPoint={handleSelectPoint}
-              onClose={() => setSelectedPoint(null)}
+              onClose={handleClosePoint}
               onImportGpx={handleImportGpx}
               onImportPoints={handleImportPoints}
               onImportMedia={handleImportMedia}
@@ -467,7 +505,7 @@ function App() {
               stats={stats}
               mediaLibrary={mediaLibrary}
               onSelectPoint={handleSelectPoint}
-              onClose={() => setSelectedPoint(null)}
+              onClose={handleClosePoint}
             />
           )}
         </aside>
