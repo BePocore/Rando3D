@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Belvedere</title>
+  <desc id="desc">Image de demonstration pour un belvedere</desc>
+  <rect width="1200" height="900" fill="#d7e6f5"/>
+  <path d="M0 470 180 330l170 130 210-210 240 230 155-145 245 210v355H0Z" fill="#6f8f8b"/>
+  <path d="M0 600 235 410l185 170 180-210 230 210 150-105 220 170v255H0Z" fill="#2c6b62"/>
+  <path d="M0 725c190-62 350-76 480-42 170 44 270 110 450 73 98-20 178-53 270-50v194H0Z" fill="#eef4ef"/>
+  <path d="M160 720h880v34H160z" fill="#734c28"/>
+  <path d="M220 610h44v120h-44zm716 0h44v120h-44z" fill="#734c28"/>
+</svg>

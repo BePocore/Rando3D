@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="Carte interactive 3D" xmlns="http://www.topografix.com/GPX/1/1">
+  <metadata>
+    <name>Trace de demonstration</name>
+  </metadata>
+  <trk>
+    <name>Randonnee demo</name>
+    <trkseg>
+      <trkpt lat="45.92308" lon="6.87266"><ele>1395</ele></trkpt>
+      <trkpt lat="45.92372" lon="6.87382"><ele>1414</ele></trkpt>
+      <trkpt lat="45.92443" lon="6.87508"><ele>1440</ele></trkpt>
+      <trkpt lat="45.92514" lon="6.87652"><ele>1478</ele></trkpt>
+      <trkpt lat="45.92582" lon="6.87784"><ele>1516</ele></trkpt>
+      <trkpt lat="45.92662" lon="6.87905"><ele>1558</ele></trkpt>
+      <trkpt lat="45.92742" lon="6.88030"><ele>1595</ele></trkpt>
+      <trkpt lat="45.92814" lon="6.88154"><ele>1628</ele></trkpt>
+      <trkpt lat="45.92898" lon="6.88282"><ele>1664</ele></trkpt>
+      <trkpt lat="45.92972" lon="6.88418"><ele>1706</ele></trkpt>
+      <trkpt lat="45.93035" lon="6.88564"><ele>1742</ele></trkpt>
+      <trkpt lat="45.93072" lon="6.88722"><ele>1771</ele></trkpt>
+      <trkpt lat="45.93041" lon="6.88842"><ele>1765</ele></trkpt>
+      <trkpt lat="45.92976" lon="6.88911"><ele>1748</ele></trkpt>
+      <trkpt lat="45.92893" lon="6.88870"><ele>1724</ele></trkpt>
+      <trkpt lat="45.92821" lon="6.88764"><ele>1690</ele></trkpt>
+      <trkpt lat="45.92746" lon="6.88620"><ele>1646</ele></trkpt>
+      <trkpt lat="45.92676" lon="6.88482"><ele>1608</ele></trkpt>
+      <trkpt lat="45.92605" lon="6.88354"><ele>1576</ele></trkpt>
+      <trkpt lat="45.92524" lon="6.88220"><ele>1540</ele></trkpt>
+      <trkpt lat="45.92448" lon="6.88096"><ele>1504</ele></trkpt>
+      <trkpt lat="45.92370" lon="6.87974"><ele>1468</ele></trkpt>
+      <trkpt lat="45.92308" lon="6.87845"><ele>1432</ele></trkpt>
+      <trkpt lat="45.92256" lon="6.87692"><ele>1406</ele></trkpt>
+      <trkpt lat="45.92308" lon="6.87266"><ele>1395</ele></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

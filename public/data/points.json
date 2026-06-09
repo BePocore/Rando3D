@@ -1,0 +1,30 @@
+[
+  {
+    "id": "depart",
+    "lat": 45.92308,
+    "lng": 6.87266,
+    "title": "Depart du sentier",
+    "type": "poi",
+    "image": "/photos/depart.svg",
+    "description": "Point de depart de la trace. Remplace cette image et cette description avec tes propres contenus."
+  },
+  {
+    "id": "belvedere",
+    "lat": 45.92742,
+    "lng": 6.8803,
+    "title": "Belvedere",
+    "type": "photo",
+    "image": "/photos/belvedere.svg",
+    "description": "Un premier point photo place directement aux coordonnees GPS du fichier JSON."
+  },
+  {
+    "id": "panorama",
+    "lat": 45.93072,
+    "lng": 6.88722,
+    "title": "Panorama 360",
+    "type": "360",
+    "image": "/photos/panorama.svg",
+    "skypixelUrl": "https://www.skypixel.com/",
+    "description": "Point dedie aux panoramas 360. Le bouton ouvre le lien SkyPixel dans un nouvel onglet."
+  }
+]

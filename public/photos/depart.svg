@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="900" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Depart du sentier</title>
+  <desc id="desc">Image de demonstration pour le point de depart</desc>
+  <rect width="1200" height="900" fill="#dce9e4"/>
+  <path d="M0 625 210 420l120 120 190-240 180 250 125-140 375 310v180H0Z" fill="#3a7d6f"/>
+  <path d="M520 300 700 550l80-90 420 330v110H0V720l210-195 120 120Z" fill="#1f5f58"/>
+  <path d="M0 735c150-54 280-74 390-60 150 19 258 88 417 78 148-9 235-83 393-74v221H0Z" fill="#f4f6ed"/>
+  <circle cx="980" cy="158" r="72" fill="#f59e0b"/>
+</svg>
