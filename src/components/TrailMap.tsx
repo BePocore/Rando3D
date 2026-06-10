@@ -231,17 +231,16 @@ export function TrailMap({
     }
     const cameraController = viewer.scene.screenSpaceCameraController
     cameraController.enableCollisionDetection = true
-    cameraController.minimumZoomDistance = 80
-    cameraController.maximumZoomDistance = 14_000
+    cameraController.minimumZoomDistance = 60
+    cameraController.maximumZoomDistance = 60_000
     cameraController.zoomFactor = 1.15
+    cameraController.inertiaZoom = 0.6
+    cameraController.maximumMovementRatio = 0.08
     cameraController.zoomEventTypes = [
       CameraEventType.WHEEL,
       CameraEventType.PINCH,
     ]
-    cameraController.tiltEventTypes = [
-      CameraEventType.RIGHT_DRAG,
-      CameraEventType.PINCH,
-    ]
+    cameraController.tiltEventTypes = [CameraEventType.RIGHT_DRAG]
     viewerRef.current = viewer
     pointsByEntityId.current.clear()
 
