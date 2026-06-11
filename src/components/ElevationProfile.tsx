@@ -1,6 +1,7 @@
 import { Activity } from 'lucide-react'
 import type { Trace, TrailStats } from '../types'
 import { distanceBetween } from '../lib/geo'
+import { traceColor } from './TrailMap'
 import {
   formatDistance,
   formatElevation,
@@ -18,28 +19,38 @@ type ProfilePoint = {
   elevation: number
 }
 
-// Distance cumulée sur l'ensemble des traces, sans compter l'écart entre
-// la fin d'une trace et le début de la suivante.
-const buildProfile = (traces: Trace[]): ProfilePoint[] => {
-  let distance = 0
-  const profile: ProfilePoint[] = []
+type ProfileSegment = {
+  color: string
+  points: ProfilePoint[]
+}
 
-  for (const trace of traces) {
-    trace.points.forEach((point, index) => {
-      if (index > 0) {
-        distance += distanceBetween(trace.points[index - 1], point)
+// Un segment coloré par trace, avec une distance cumulée continue (sans
+// compter l'écart entre la fin d'une trace et le début de la suivante).
+const buildSegments = (traces: Trace[]): ProfileSegment[] => {
+  let distance = 0
+  const segments: ProfileSegment[] = []
+
+  traces.forEach((trace, index) => {
+    const points: ProfilePoint[] = []
+    trace.points.forEach((point, pointIndex) => {
+      if (pointIndex > 0) {
+        distance += distanceBetween(trace.points[pointIndex - 1], point)
       }
       if (point.ele !== undefined) {
-        profile.push({ distance, elevation: point.ele })
+        points.push({ distance, elevation: point.ele })
       }
     })
-  }
+    if (points.length > 0) {
+      segments.push({ color: trace.color ?? traceColor(index), points })
+    }
+  })
 
-  return profile
+  return segments
 }
 
 export function ElevationProfile({ traces, stats }: ElevationProfileProps) {
-  const profile = buildProfile(traces)
+  const segments = buildSegments(traces)
+  const profile = segments.flatMap((segment) => segment.points)
 
   if (profile.length < 2 || stats.maxElevationMeters === null) {
     return (
@@ -64,20 +75,19 @@ export function ElevationProfile({ traces, stats }: ElevationProfileProps) {
   const elevationRange = Math.max(maxElevation - minElevation, 1)
   const distanceRange = Math.max(stats.distanceMeters, 1)
 
-  const linePoints = profile.map((point) => {
+  const toXY = (point: ProfilePoint): string => {
     const x =
-      paddingX +
-      (point.distance / distanceRange) * (width - paddingX * 2)
+      paddingX + (point.distance / distanceRange) * (width - paddingX * 2)
     const y =
       graphBottom -
       ((point.elevation - minElevation) / elevationRange) *
         (graphBottom - graphTop)
     return `${x.toFixed(1)},${y.toFixed(1)}`
-  })
+  }
 
   const areaPoints = [
     `${paddingX},${graphBottom}`,
-    ...linePoints,
+    ...profile.map(toXY),
     `${width - paddingX},${graphBottom}`,
   ].join(' ')
   const distanceTicks = Array.from({ length: 5 }, (_, index) => {
@@ -119,14 +129,17 @@ export function ElevationProfile({ traces, stats }: ElevationProfileProps) {
           </linearGradient>
         </defs>
         <polyline points={areaPoints} fill="url(#profile-fill)" />
-        <polyline
-          points={linePoints.join(' ')}
-          fill="none"
-          stroke="#0f766e"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          strokeWidth="4"
-        />
+        {segments.map((segment, index) => (
+          <polyline
+            key={index}
+            points={segment.points.map(toXY).join(' ')}
+            fill="none"
+            stroke={segment.color}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth="4"
+          />
+        ))}
         <line
           className="elevation-axis-line"
           x1={paddingX}
