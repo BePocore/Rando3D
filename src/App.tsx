@@ -48,6 +48,7 @@ import type {
 } from './types'
 import { MediaLightbox } from './components/MediaLightbox'
 import { AccessGate } from './components/AccessGate'
+import { useVideoPosters } from './useVideoPosters'
 
 export type LightboxMedia = {
   src: string
@@ -382,6 +383,7 @@ function App() {
     [traces],
   )
   const stats = useMemo(() => combineStats(traces), [traces])
+  const videoPosters = useVideoPosters(points, mediaLibrary)
 
   const mediaPoints = useMemo(
     () =>
@@ -1055,6 +1057,7 @@ function App() {
               selectedPoint={selectedPoint}
               cameraCommand={cameraCommand}
               editable={isStudioMode}
+              videoPosters={videoPosters}
               onMovePoint={handleMovePoint}
               onCreatePoint={handleCreatePoint}
               onMarkerClick={handleMarkerClick}
@@ -1064,6 +1067,7 @@ function App() {
           <MediaRail
             points={mediaPoints}
             mediaLibrary={mediaLibrary}
+            videoPosters={videoPosters}
             selectedPoint={selectedPoint}
             onSelectPoint={handleSelectPoint}
           />

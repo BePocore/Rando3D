@@ -5,6 +5,7 @@ import type { ImportedMedia, TrailPoint } from '../types'
 type MediaRailProps = {
   points: TrailPoint[]
   mediaLibrary: ImportedMedia[]
+  videoPosters?: Record<string, string>
   selectedPoint: TrailPoint | null
   onSelectPoint: (point: TrailPoint) => void
 }
@@ -12,6 +13,7 @@ type MediaRailProps = {
 export function MediaRail({
   points,
   mediaLibrary,
+  videoPosters = {},
   selectedPoint,
   onSelectPoint,
 }: MediaRailProps) {
@@ -23,6 +25,8 @@ export function MediaRail({
         {points.map((point) => {
           const media = resolvePointMedia(point, mediaLibrary)
           const isSelected = selectedPoint?.id === point.id
+          const videoPoster =
+            media?.kind === 'video' ? videoPosters[media.src] : undefined
 
           return (
             <button
@@ -34,9 +38,9 @@ export function MediaRail({
               onClick={() => onSelectPoint(point)}
             >
               <span className="media-tile-visual">
-                {media?.kind === 'image' ? (
+                {media?.kind === 'image' || videoPoster ? (
                   <img
-                    src={media.src}
+                    src={media?.kind === 'image' ? media.src : videoPoster}
                     alt=""
                     decoding="async"
                     loading="lazy"

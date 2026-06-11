@@ -46,6 +46,7 @@ type TrailMapProps = {
   selectedPoint: TrailPoint | null
   cameraCommand: CameraCommand | null
   editable?: boolean
+  videoPosters?: Record<string, string>
   onMovePoint?: (pointId: string, lat: number, lng: number) => void
   onCreatePoint?: (lat: number, lng: number) => void
   onMarkerClick: (point: TrailPoint) => void
@@ -211,6 +212,7 @@ export function TrailMap({
   selectedPoint,
   cameraCommand,
   editable = false,
+  videoPosters = {},
   onMovePoint,
   onCreatePoint,
   onMarkerClick,
@@ -548,7 +550,10 @@ export function TrailMap({
       const id = pointEntityId(point, index)
       pointsByEntityId.current.set(id, point)
       const media = resolvePointMedia(point, mediaLibrary)
-      const showThumbnail = media?.kind === 'image'
+      const poster =
+        media?.kind === 'video' ? videoPosters[media.src] : undefined
+      const thumbnailSrc = media?.kind === 'image' ? media.src : poster
+      const showThumbnail = Boolean(thumbnailSrc)
       const position = Cartesian3.fromDegrees(point.lng, point.lat, 0)
 
       // Cadre blanc derrière la vignette (un seul clic possible : même point).
@@ -578,7 +583,7 @@ export function TrailMap({
         position,
         billboard: {
           image: showThumbnail
-            ? media.src
+            ? (thumbnailSrc as string)
             : point.color
               ? coloredMarkerDataUri(point.color)
               : markerDataUri(point.type),
@@ -618,7 +623,7 @@ export function TrailMap({
       didInitialFitRef.current = true
       flyToTrail(viewer, track, points, 0)
     }
-  }, [mediaLibrary, points, track, traces])
+  }, [mediaLibrary, points, track, traces, videoPosters])
 
   useEffect(() => {
     const viewer = viewerRef.current
