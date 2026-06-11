@@ -4,13 +4,13 @@ import { PointDetail } from './PointDetail'
 import { PointTypeIcon } from './PointTypeIcon'
 import { pointTypeLabels } from '../lib/pointMeta'
 import { resolvePointMedia } from '../lib/media'
-import type { ImportedMedia, TrackPoint, TrailPoint, TrailStats } from '../types'
+import type { ImportedMedia, Trace, TrailPoint, TrailStats } from '../types'
 import type { LightboxMedia } from '../App'
 
 type PublicPanelProps = {
   selectedPoint: TrailPoint | null
   points: TrailPoint[]
-  track: TrackPoint[]
+  traces: Trace[]
   stats: TrailStats
   mediaLibrary: ImportedMedia[]
   onSelectPoint: (point: TrailPoint) => void
@@ -21,7 +21,7 @@ type PublicPanelProps = {
 export function PublicPanel({
   selectedPoint,
   points,
-  track,
+  traces,
   stats,
   mediaLibrary,
   onSelectPoint,
@@ -49,7 +49,7 @@ export function PublicPanel({
         <Mountain aria-hidden="true" size={22} />
       </div>
 
-      <ElevationProfile track={track} stats={stats} />
+      <ElevationProfile traces={traces} stats={stats} />
 
       <div className="point-list">
         {points.length === 0 ? (

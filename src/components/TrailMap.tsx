@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import {
   ArcGisMapServerImageryProvider,
   ArcGISTiledElevationTerrainProvider,
@@ -28,7 +28,7 @@ import {
   type Entity,
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import type { ImportedMedia, TrailPoint, TrackPoint } from '../types'
+import type { ImportedMedia, Trace, TrailPoint, TrackPoint } from '../types'
 import { simplifyTrack } from '../lib/geo'
 import { markerDataUri } from '../lib/markers'
 import { resolvePointMedia } from '../lib/media'
@@ -38,7 +38,7 @@ import type { BasemapId } from '../lib/basemaps'
 if (cesiumIonToken) Ion.defaultAccessToken = cesiumIonToken
 
 type TrailMapProps = {
-  track: TrackPoint[]
+  traces: Trace[]
   points: TrailPoint[]
   mediaLibrary: ImportedMedia[]
   basemap: BasemapId
@@ -63,7 +63,22 @@ export type CameraCommand = {
 }
 
 const routeOuterColor = Color.fromCssColorString('#ffffff')
-const routeInnerColor = Color.fromCssColorString('#f4512c')
+
+// Palette des traces (jour 1, jour 2, ...) — réutilisée dans le Studio.
+export const traceColors = [
+  '#f4512c',
+  '#3cdc8c',
+  '#3b82f6',
+  '#f59e0b',
+  '#a855f7',
+  '#ec4899',
+]
+
+export const traceColor = (index: number): string =>
+  traceColors[index % traceColors.length]
+
+const combineTracePoints = (traces: Trace[]): TrackPoint[] =>
+  traces.flatMap((trace) => trace.points)
 
 const thumbnailWidth = 76
 const thumbnailHeight = 56
@@ -170,7 +185,7 @@ const createBaseLayer = (basemap: BasemapId): ImageryLayer => {
 }
 
 export function TrailMap({
-  track,
+  traces,
   points,
   mediaLibrary,
   basemap,
@@ -182,6 +197,7 @@ export function TrailMap({
   onCreatePoint,
   onMarkerClick,
 }: TrailMapProps) {
+  const track = useMemo(() => combineTracePoints(traces), [traces])
   const containerRef = useRef<HTMLDivElement | null>(null)
   const viewerRef = useRef<Viewer | null>(null)
   const pointsByEntityId = useRef(new Map<string, TrailPoint>())
@@ -470,14 +486,16 @@ export function TrailMap({
     viewer.entities.removeAll()
     pointsByEntityId.current.clear()
 
-    const renderedTrack = simplifyTrack(track, 1.5, 6_000)
-    const routePositions = renderedTrack.map((point) =>
-      Cartesian3.fromDegrees(point.lng, point.lat, 0),
-    )
+    // Une polyligne colorée par trace (jour 1, jour 2, ...).
+    traces.forEach((trace, traceIndex) => {
+      const renderedTrack = simplifyTrack(trace.points, 1.5, 6_000)
+      const routePositions = renderedTrack.map((point) =>
+        Cartesian3.fromDegrees(point.lng, point.lat, 0),
+      )
+      if (routePositions.length < 2) return
 
-    if (routePositions.length > 1) {
       viewer.entities.add({
-        id: 'trail-route-outline',
+        id: `trail-route-outline-${trace.id}`,
         polyline: {
           positions: routePositions,
           width: 10,
@@ -487,16 +505,16 @@ export function TrailMap({
         },
       })
       viewer.entities.add({
-        id: 'trail-route',
+        id: `trail-route-${trace.id}`,
         polyline: {
           positions: routePositions,
           width: 5,
           clampToGround: true,
-          material: routeInnerColor,
+          material: Color.fromCssColorString(traceColor(traceIndex)),
           zIndex: 21,
         },
       })
-    }
+    })
 
     const heightReference = useWorldTerrain
       ? HeightReference.CLAMP_TO_GROUND
@@ -572,7 +590,7 @@ export function TrailMap({
       didInitialFitRef.current = true
       flyToTrail(viewer, track, points, 0)
     }
-  }, [mediaLibrary, points, track])
+  }, [mediaLibrary, points, track, traces])
 
   useEffect(() => {
     const viewer = viewerRef.current

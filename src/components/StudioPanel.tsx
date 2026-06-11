@@ -7,11 +7,14 @@ import {
   FileJson,
   FileUp,
   Image,
+  KeyRound,
   List,
   LockKeyhole,
   MapPinOff,
   Mountain,
   Plus,
+  Route,
+  Trash2,
   TriangleAlert,
   UploadCloud,
   Video,
@@ -21,7 +24,7 @@ import type {
   ImportedMedia,
   ImportReport,
   PointType,
-  TrackPoint,
+  Trace,
   TrailPoint,
   TrailStats,
   UploadProgress,
@@ -32,18 +35,21 @@ import { pointTypeLabels } from '../lib/pointMeta'
 import { ElevationProfile } from './ElevationProfile'
 import { PointDetail } from './PointDetail'
 import { PointTypeIcon } from './PointTypeIcon'
+import { traceColor } from './TrailMap'
 
 type StudioPanelProps = {
   selectedPoint: TrailPoint | null
   points: TrailPoint[]
-  track: TrackPoint[]
+  traces: Trace[]
   stats: TrailStats
   mediaLibrary: ImportedMedia[]
-  trackSourceName: string
   pointsSourceName: string
+  accessCode: string
   onSelectPoint: (point: TrailPoint) => void
   onClose: () => void
-  onImportGpx: (file: File) => Promise<void>
+  onImportGpx: (files: File[]) => Promise<void>
+  onDeleteTrace: (traceId: string) => void
+  onRenameTrace: (traceId: string, name: string) => void
   onImportPoints: (file: File) => Promise<void>
   onImportMedia: (files: File[]) => Promise<void>
   onAddPoint: (point: TrailPoint) => void
@@ -58,6 +64,7 @@ type StudioPanelProps = {
   uploadProgress: UploadProgress | null
   importReport: ImportReport | null
   onDismissReport: () => void
+  onAccessCodeChange: (code: string) => void
   onAdminPasswordChange: (password: string) => void
   saveStatus: string | null
 }
@@ -398,14 +405,16 @@ function SelectedPointEditor({
 export function StudioPanel({
   selectedPoint,
   points,
-  track,
+  traces,
   stats,
   mediaLibrary,
-  trackSourceName,
   pointsSourceName,
+  accessCode,
   onSelectPoint,
   onClose,
   onImportGpx,
+  onDeleteTrace,
+  onRenameTrace,
   onImportPoints,
   onImportMedia,
   onAddPoint,
@@ -414,6 +423,7 @@ export function StudioPanel({
   onExportPoints,
   onSaveProject,
   onShowMedia,
+  onAccessCodeChange,
   adminPassword,
   isSaving,
   isUploading,
@@ -512,7 +522,7 @@ export function StudioPanel({
         <Mountain aria-hidden="true" size={22} />
       </div>
 
-      <ElevationProfile track={track} stats={stats} />
+      <ElevationProfile traces={traces} stats={stats} />
 
       <div className="studio-actions">
         <label className="studio-password">
@@ -526,6 +536,19 @@ export function StudioPanel({
             value={adminPassword}
             onChange={(event) => onAdminPasswordChange(event.target.value)}
             placeholder="Mot de passe Vercel"
+          />
+        </label>
+        <label className="studio-password">
+          <span>
+            <KeyRound aria-hidden="true" size={15} />
+            Code d’accès visiteurs
+          </span>
+          <input
+            autoComplete="off"
+            type="text"
+            value={accessCode}
+            onChange={(event) => onAccessCodeChange(event.target.value)}
+            placeholder="Laisser vide = accès libre"
           />
         </label>
         <button
@@ -626,19 +649,56 @@ export function StudioPanel({
           <label className="upload-tile">
             <FileUp aria-hidden="true" size={22} />
             <span>
-              <strong>Trace GPX</strong>
-              <small>{trackSourceName}</small>
+              <strong>Traces GPX</strong>
+              <small>
+                {traces.length > 0
+                  ? `${traces.length} trace(s) · ajouter`
+                  : 'Importer une ou plusieurs traces'}
+              </small>
             </span>
             <input
               type="file"
               accept=".gpx,application/gpx+xml,text/xml,application/xml"
+              multiple
               onChange={(event) => {
-                const file = event.target.files?.[0]
-                if (file) void onImportGpx(file)
+                const files = Array.from(event.target.files ?? [])
+                if (files.length > 0) void onImportGpx(files)
                 event.currentTarget.value = ''
               }}
             />
           </label>
+
+          {traces.length > 0 ? (
+            <div className="trace-list">
+              {traces.map((trace, index) => (
+                <div className="trace-row" key={trace.id}>
+                  <span
+                    className="trace-color"
+                    style={{ background: traceColor(index) }}
+                    aria-hidden="true"
+                  />
+                  <Route aria-hidden="true" size={15} />
+                  <input
+                    className="trace-name"
+                    value={trace.name}
+                    aria-label="Nom de la trace"
+                    onChange={(event) =>
+                      onRenameTrace(trace.id, event.target.value)
+                    }
+                  />
+                  <button
+                    className="trace-delete"
+                    type="button"
+                    aria-label={`Supprimer ${trace.name}`}
+                    title="Supprimer la trace"
+                    onClick={() => onDeleteTrace(trace.id)}
+                  >
+                    <Trash2 aria-hidden="true" size={15} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
 
           <label className="upload-tile">
             <FileJson aria-hidden="true" size={22} />

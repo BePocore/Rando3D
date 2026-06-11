@@ -1,5 +1,5 @@
 import { Activity } from 'lucide-react'
-import type { TrackPoint, TrailStats } from '../types'
+import type { Trace, TrailStats } from '../types'
 import { distanceBetween } from '../lib/geo'
 import {
   formatDistance,
@@ -9,7 +9,7 @@ import {
 } from '../lib/format'
 
 type ElevationProfileProps = {
-  track: TrackPoint[]
+  traces: Trace[]
   stats: TrailStats
 }
 
@@ -18,24 +18,28 @@ type ProfilePoint = {
   elevation: number
 }
 
-const buildProfile = (track: TrackPoint[]): ProfilePoint[] => {
+// Distance cumulée sur l'ensemble des traces, sans compter l'écart entre
+// la fin d'une trace et le début de la suivante.
+const buildProfile = (traces: Trace[]): ProfilePoint[] => {
   let distance = 0
+  const profile: ProfilePoint[] = []
 
-  return track.reduce<ProfilePoint[]>((profile, point, index) => {
-    if (index > 0) {
-      distance += distanceBetween(track[index - 1], point)
-    }
+  for (const trace of traces) {
+    trace.points.forEach((point, index) => {
+      if (index > 0) {
+        distance += distanceBetween(trace.points[index - 1], point)
+      }
+      if (point.ele !== undefined) {
+        profile.push({ distance, elevation: point.ele })
+      }
+    })
+  }
 
-    if (point.ele !== undefined) {
-      profile.push({ distance, elevation: point.ele })
-    }
-
-    return profile
-  }, [])
+  return profile
 }
 
-export function ElevationProfile({ track, stats }: ElevationProfileProps) {
-  const profile = buildProfile(track)
+export function ElevationProfile({ traces, stats }: ElevationProfileProps) {
+  const profile = buildProfile(traces)
 
   if (profile.length < 2 || stats.maxElevationMeters === null) {
     return (

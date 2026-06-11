@@ -9,6 +9,12 @@ export type TrackPoint = {
   time?: string
 }
 
+export type Trace = {
+  id: string
+  name: string
+  points: TrackPoint[]
+}
+
 export type TrailPoint = {
   id?: string
   lat: number
@@ -46,6 +52,8 @@ export type TrailProject = {
   savedAt: string
   track: TrackPoint[]
   trackSourceName: string
+  traces?: Trace[]
+  accessCode?: string
   mediaLibrary?: ImportedMedia[]
 }
 

@@ -39,12 +39,15 @@ import type {
   ImportReport,
   MediaKind,
   PointType,
+  Trace,
   TrailPoint,
   TrailProject,
   TrackPoint,
+  TrailStats,
   UploadProgress,
 } from './types'
 import { MediaLightbox } from './components/MediaLightbox'
+import { AccessGate } from './components/AccessGate'
 
 export type LightboxMedia = {
   src: string
@@ -54,6 +57,53 @@ export type LightboxMedia = {
 
 const pointTypes: PointType[] = ['photo', 'video', '360', 'poi']
 const adminPasswordStorageKey = 'rando3d-admin-password'
+const accessGrantStorageKey = 'rando3d-access-granted'
+
+let traceIdCounter = 0
+const createTraceId = (): string => {
+  traceIdCounter += 1
+  return `trace-${Date.now()}-${traceIdCounter}`
+}
+
+// Stats combinées : on additionne chaque trace pour ne pas compter la
+// distance entre la fin d'un jour et le départ du suivant.
+const combineStats = (traces: Trace[]): TrailStats => {
+  let distanceMeters = 0
+  let elevationGainMeters = 0
+  let elevationLossMeters = 0
+  let pointCount = 0
+  let maxElevationMeters: number | null = null
+  let minElevationMeters: number | null = null
+
+  for (const trace of traces) {
+    const stats = computeTrailStats(trace.points)
+    distanceMeters += stats.distanceMeters
+    elevationGainMeters += stats.elevationGainMeters
+    elevationLossMeters += stats.elevationLossMeters
+    pointCount += stats.pointCount
+    if (stats.maxElevationMeters !== null) {
+      maxElevationMeters =
+        maxElevationMeters === null
+          ? stats.maxElevationMeters
+          : Math.max(maxElevationMeters, stats.maxElevationMeters)
+    }
+    if (stats.minElevationMeters !== null) {
+      minElevationMeters =
+        minElevationMeters === null
+          ? stats.minElevationMeters
+          : Math.min(minElevationMeters, stats.minElevationMeters)
+    }
+  }
+
+  return {
+    distanceMeters,
+    elevationGainMeters,
+    elevationLossMeters,
+    maxElevationMeters,
+    minElevationMeters,
+    pointCount,
+  }
+}
 
 const isStudioUrl = (): boolean => {
   const params = new URLSearchParams(window.location.search)
@@ -182,7 +232,7 @@ const formatKilometers = (meters: number): string => {
 function App() {
   const [isStudioMode] = useState(() => isStudioUrl())
   const [isPanelOpen, setIsPanelOpen] = useState(() => isStudioUrl())
-  const [track, setTrack] = useState<TrackPoint[]>([])
+  const [traces, setTraces] = useState<Trace[]>([])
   const [points, setPoints] = useState<TrailPoint[]>([])
   const [mediaLibrary, setMediaLibrary] = useState<ImportedMedia[]>([])
   const [basemap, setBasemap] = useState<BasemapId>(() => storedBasemap())
@@ -202,8 +252,9 @@ function App() {
   const [adminPassword, setAdminPassword] = useState(() =>
     window.sessionStorage.getItem(adminPasswordStorageKey) ?? '',
   )
-  const [trackSourceName, setTrackSourceName] = useState('/data/trace.gpx')
   const [pointsSourceName, setPointsSourceName] = useState('/data/points.json')
+  const [accessCode, setAccessCode] = useState('')
+  const [accessGranted, setAccessGranted] = useState(false)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -243,6 +294,13 @@ function App() {
             onlineProject = {
               track: candidate.track,
               points: candidate.points,
+              traces: Array.isArray(candidate.traces)
+                ? candidate.traces
+                : undefined,
+              accessCode:
+                typeof candidate.accessCode === 'string'
+                  ? candidate.accessCode
+                  : undefined,
               mediaLibrary: Array.isArray(candidate.mediaLibrary)
                 ? candidate.mediaLibrary
                 : [],
@@ -256,22 +314,42 @@ function App() {
         }
 
         if (onlineProject) {
-          setTrack(onlineProject.track)
+          const loadedTraces =
+            onlineProject.traces && onlineProject.traces.length > 0
+              ? onlineProject.traces.filter(
+                  (trace) => Array.isArray(trace.points) && trace.points.length > 1,
+                )
+              : [
+                  {
+                    id: createTraceId(),
+                    name: onlineProject.trackSourceName,
+                    points: onlineProject.track,
+                  },
+                ]
+          setTraces(loadedTraces)
           setPoints(
             onlineProject.points
               .map((point, index) => normalizePoint(point, index))
               .filter((point): point is TrailPoint => point !== null),
           )
           setMediaLibrary(onlineProject.mediaLibrary ?? [])
-          setTrackSourceName(onlineProject.trackSourceName)
           setPointsSourceName(onlineProject.pointsSourceName)
+          const code = onlineProject.accessCode ?? ''
+          setAccessCode(code)
+          setAccessGranted(
+            !code ||
+              window.sessionStorage.getItem(accessGrantStorageKey) === code,
+          )
         } else {
-          setTrack(parseGpx(gpxText))
+          setTraces([
+            { id: createTraceId(), name: 'Trace', points: parseGpx(gpxText) },
+          ])
           setPoints(
             rawPoints
               .map((point, index) => normalizePoint(point, index))
               .filter((point): point is TrailPoint => point !== null),
           )
+          setAccessGranted(true)
         }
       } catch (loadError) {
         setError(
@@ -287,7 +365,11 @@ function App() {
     void loadTrail()
   }, [])
 
-  const stats = useMemo(() => computeTrailStats(track), [track])
+  const combinedPoints = useMemo(
+    () => traces.flatMap((trace) => trace.points),
+    [traces],
+  )
+  const stats = useMemo(() => combineStats(traces), [traces])
 
   const mediaPoints = useMemo(
     () =>
@@ -370,25 +452,67 @@ function App() {
     setCameraCommand({ id: Date.now(), type })
   }, [])
 
-  const handleImportGpx = useCallback(async (file: File) => {
-    try {
-      const parsedTrack = parseGpx(await file.text())
-      if (parsedTrack.length < 2) {
-        throw new Error('La trace GPX ne contient pas assez de points.')
-      }
+  // Import additif : chaque GPX devient une trace distincte.
+  const handleImportGpx = useCallback(async (files: File[]) => {
+    const newTraces: Trace[] = []
+    let failures = 0
 
-      setTrack(parsedTrack)
-      setTrackSourceName(file.name)
-      setSelectedPoint(null)
-      setError(null)
-    } catch (importError) {
-      setError(
-        importError instanceof Error
-          ? importError.message
-          : 'Import GPX impossible.',
-      )
+    for (const file of files) {
+      try {
+        const parsedTrack = parseGpx(await file.text())
+        if (parsedTrack.length < 2) {
+          failures += 1
+          continue
+        }
+        newTraces.push({
+          id: createTraceId(),
+          name: file.name.replace(/\.gpx$/i, ''),
+          points: parsedTrack,
+        })
+      } catch {
+        failures += 1
+      }
     }
+
+    if (newTraces.length === 0) {
+      setError('Aucune trace GPX valide dans la sélection.')
+      return
+    }
+
+    setTraces((current) => [...current, ...newTraces])
+    setSelectedPoint(null)
+    setError(
+      failures > 0 ? `${failures} fichier(s) GPX ignoré(s).` : null,
+    )
   }, [])
+
+  const handleDeleteTrace = useCallback((traceId: string) => {
+    setTraces((current) => current.filter((trace) => trace.id !== traceId))
+  }, [])
+
+  const handleRenameTrace = useCallback((traceId: string, name: string) => {
+    setTraces((current) =>
+      current.map((trace) =>
+        trace.id === traceId ? { ...trace, name } : trace,
+      ),
+    )
+  }, [])
+
+  const handleAccessCodeChange = useCallback((code: string) => {
+    setAccessCode(code)
+  }, [])
+
+  const handleGrantAccess = useCallback(
+    (code: string): boolean => {
+      const granted = code.trim() === accessCode.trim() && accessCode.trim() !== ''
+      if (granted) {
+        window.sessionStorage.setItem(accessGrantStorageKey, accessCode)
+        setAccessGranted(true)
+      }
+      return granted
+    },
+    [accessCode],
+  )
 
   const handleImportPoints = useCallback(async (file: File) => {
     try {
@@ -511,7 +635,7 @@ function App() {
     )
 
     // Classement vs tracé : sans GPS / position aberrante / placé.
-    const threshold = offTrackThresholdMeters(track)
+    const threshold = offTrackThresholdMeters(combinedPoints)
     const noGps: ImportReport['noGps'] = []
     const offTrack: ImportReport['offTrack'] = []
     const placed: ImportReport['placed'] = []
@@ -524,7 +648,7 @@ function App() {
       }
       const distance = distanceToTrack(
         { lat: media.lat, lng: media.lng },
-        track,
+        combinedPoints,
       )
       if (distance > threshold) {
         offTrack.push({
@@ -588,7 +712,7 @@ function App() {
         ? `${importedMedia.length}/${mediaFiles.length} média(s) envoyé(s). Voir le rapport.`
         : 'Medias envoyes. Publie la carte pour partager les points.',
     )
-  }, [adminPassword, points, track])
+  }, [adminPassword, points, combinedPoints])
 
   const handleDismissReport = useCallback(() => {
     setImportReport(null)
@@ -665,12 +789,15 @@ function App() {
 
     try {
       const project: TrailProject = {
-        track,
+        // `track` reste alimenté pour la validation côté API (rétrocompat).
+        track: combinedPoints,
+        traces,
+        accessCode: accessCode.trim() || undefined,
         points: exportablePoints(points),
         mediaLibrary: mediaLibrary.filter(
           (media) => !media.url.startsWith('blob:'),
         ),
-        trackSourceName,
+        trackSourceName: traces.map((trace) => trace.name).join(' · ') || 'Traces',
         pointsSourceName,
         savedAt: new Date().toISOString(),
       }
@@ -704,12 +831,13 @@ function App() {
       setIsSaving(false)
     }
   }, [
+    accessCode,
     adminPassword,
+    combinedPoints,
     mediaLibrary,
     points,
     pointsSourceName,
-    track,
-    trackSourceName,
+    traces,
   ])
 
   return (
@@ -849,7 +977,7 @@ function App() {
             </div>
           ) : (
             <TrailMap
-              track={track}
+              traces={traces}
               points={points}
               mediaLibrary={mediaLibrary}
               basemap={basemap}
@@ -900,14 +1028,16 @@ function App() {
                 <StudioPanel
                   selectedPoint={selectedPoint}
                   points={points}
-                  track={track}
+                  traces={traces}
                   stats={stats}
                   mediaLibrary={mediaLibrary}
-                  trackSourceName={trackSourceName}
                   pointsSourceName={pointsSourceName}
+                  accessCode={accessCode}
                   onSelectPoint={handleSelectPoint}
                   onClose={handleClosePoint}
                   onImportGpx={handleImportGpx}
+                  onDeleteTrace={handleDeleteTrace}
+                  onRenameTrace={handleRenameTrace}
                   onImportPoints={handleImportPoints}
                   onImportMedia={handleImportMedia}
                   onAddPoint={handleAddPoint}
@@ -916,6 +1046,7 @@ function App() {
                   onExportPoints={handleExportPoints}
                   onSaveProject={handleSaveProject}
                   onShowMedia={handleOpenLightbox}
+                  onAccessCodeChange={handleAccessCodeChange}
                   adminPassword={adminPassword}
                   isSaving={isSaving}
                   isUploading={isUploading}
@@ -929,7 +1060,7 @@ function App() {
                 <PublicPanel
                   selectedPoint={selectedPoint}
                   points={points}
-                  track={track}
+                  traces={traces}
                   stats={stats}
                   mediaLibrary={mediaLibrary}
                   onSelectPoint={handleSelectPoint}
@@ -944,6 +1075,10 @@ function App() {
 
       {lightboxMedia ? (
         <MediaLightbox media={lightboxMedia} onClose={handleCloseLightbox} />
+      ) : null}
+
+      {!isStudioMode && !isLoading && accessCode && !accessGranted ? (
+        <AccessGate onSubmit={handleGrantAccess} />
       ) : null}
     </div>
   )
