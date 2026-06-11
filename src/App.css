@@ -921,22 +921,61 @@
   gap: 6px;
 }
 
-.trace-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.trace-item {
+  display: grid;
+  gap: 6px;
   padding: 7px 9px;
   border: 1px solid var(--glass-border);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.trace-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-dim);
 }
 
 .trace-color {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  border-radius: 4px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+/* ── Palette de couleurs (traces & points) ──────────────────── */
+
+.color-swatches {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 6px;
+}
+
+.color-swatch {
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.color-swatch:hover {
+  transform: scale(1.08);
+}
+
+.color-swatch.selected {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(8, 14, 11, 0.6);
+}
+
+.color-field {
+  gap: 8px;
 }
 
 .trace-name {

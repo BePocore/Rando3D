@@ -64,18 +64,36 @@ export type CameraCommand = {
 
 const routeOuterColor = Color.fromCssColorString('#ffffff')
 
-// Palette des traces (jour 1, jour 2, ...) — réutilisée dans le Studio.
-export const traceColors = [
+// Palette partagée (traces et points) — 12 couleurs, réutilisée dans le Studio.
+export const paletteColors = [
   '#f4512c',
   '#3cdc8c',
   '#3b82f6',
   '#f59e0b',
   '#a855f7',
   '#ec4899',
+  '#ef4444',
+  '#14b8a6',
+  '#eab308',
+  '#8b5cf6',
+  '#06b6d4',
+  '#f97316',
 ]
 
 export const traceColor = (index: number): string =>
-  traceColors[index % traceColors.length]
+  paletteColors[index % paletteColors.length]
+
+// Pin coloré pour un point personnalisé (sans glyphe de type).
+export const coloredMarkerDataUri = (color: string): string => {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="48" height="58" viewBox="0 0 48 58">
+      <path fill="rgba(14, 23, 35, 0.25)" d="M24 58c6.5 0 11.8-1.5 11.8-3.4S30.5 51.2 24 51.2 12.2 52.8 12.2 54.6 17.5 58 24 58Z"/>
+      <path fill="${color}" stroke="#fff" stroke-width="3" d="M24 3C13.5 3 5 11.3 5 21.6 5 36.3 24 54 24 54s19-17.7 19-32.4C43 11.3 34.5 3 24 3Z"/>
+      <circle cx="24" cy="22" r="9" fill="rgba(255,255,255,0.96)"/>
+    </svg>
+  `
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
+}
 
 const combineTracePoints = (traces: Trace[]): TrackPoint[] =>
   traces.flatMap((trace) => trace.points)
@@ -514,7 +532,9 @@ export function TrailMap({
           positions: routePositions,
           width: 5,
           clampToGround: true,
-          material: Color.fromCssColorString(traceColor(traceIndex)),
+          material: Color.fromCssColorString(
+            trace.color ?? traceColor(traceIndex),
+          ),
           zIndex: 21,
         },
       })
@@ -557,7 +577,11 @@ export function TrailMap({
         name: point.title,
         position,
         billboard: {
-          image: showThumbnail ? media.src : markerDataUri(point.type),
+          image: showThumbnail
+            ? media.src
+            : point.color
+              ? coloredMarkerDataUri(point.color)
+              : markerDataUri(point.type),
           width: showThumbnail ? thumbnailWidth : 42,
           height: showThumbnail ? thumbnailHeight : 50,
           verticalOrigin: VerticalOrigin.BOTTOM,

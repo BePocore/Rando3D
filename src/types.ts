@@ -13,6 +13,7 @@ export type Trace = {
   id: string
   name: string
   points: TrackPoint[]
+  color?: string
 }
 
 export type TrailPoint = {
@@ -28,6 +29,7 @@ export type TrailPoint = {
   skypixelUrl?: string
   description?: string
   altitude?: number
+  color?: string
   // Verrou de position (Studio). undefined = verrouillé par défaut ;
   // seul `false` autorise le déplacement. Non persisté.
   locked?: boolean

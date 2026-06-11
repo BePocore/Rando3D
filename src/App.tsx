@@ -57,6 +57,7 @@ export type LightboxMedia = {
 
 const pointTypes: PointType[] = ['photo', 'video', '360', 'poi']
 const adminPasswordStorageKey = 'rando3d-admin-password'
+export const newPointTitle = 'Nouveau point'
 const accessGrantStorageKey = 'rando3d-access-granted'
 
 let traceIdCounter = 0
@@ -172,6 +173,7 @@ const exportablePoints = (points: TrailPoint[]): TrailPoint[] => {
       ...(point.description ? { description: point.description } : {}),
       ...(point.skypixelUrl ? { skypixelUrl: point.skypixelUrl } : {}),
       ...(point.altitude !== undefined ? { altitude: point.altitude } : {}),
+      ...(point.color ? { color: point.color } : {}),
     }
 
     if (point.video) {
@@ -531,6 +533,14 @@ function App() {
     )
   }, [])
 
+  const handleSetTraceColor = useCallback((traceId: string, color: string) => {
+    setTraces((current) =>
+      current.map((trace) =>
+        trace.id === traceId ? { ...trace, color } : trace,
+      ),
+    )
+  }, [])
+
   const handleAccessCodeChange = useCallback((code: string) => {
     setAccessCode(code)
   }, [])
@@ -764,7 +774,7 @@ function App() {
         id: `point-${Date.now()}`,
         lat,
         lng,
-        title: 'Nouveau point',
+        title: newPointTitle,
         type: 'poi',
       })
     },
@@ -797,6 +807,17 @@ function App() {
   const handleDeletePoint = useCallback((pointId: string) => {
     setPoints((current) => current.filter((point) => point.id !== pointId))
     setSelectedPoint(null)
+  }, [])
+
+  const handleSetPointColor = useCallback((pointId: string, color: string) => {
+    setPoints((current) =>
+      current.map((point) =>
+        point.id === pointId ? { ...point, color } : point,
+      ),
+    )
+    setSelectedPoint((current) =>
+      current?.id === pointId ? { ...current, color } : current,
+    )
   }, [])
 
   // Verrou de position : bascule verrouillé (défaut) / déverrouillé.
@@ -1092,12 +1113,14 @@ function App() {
                   onImportGpx={handleImportGpx}
                   onDeleteTrace={handleDeleteTrace}
                   onRenameTrace={handleRenameTrace}
+                  onSetTraceColor={handleSetTraceColor}
                   onImportPoints={handleImportPoints}
                   onImportMedia={handleImportMedia}
                   onAddPoint={handleAddPoint}
                   onUpdatePoint={handleUpdatePoint}
                   onDeletePoint={handleDeletePoint}
                   onToggleLock={handleToggleLock}
+                  onSetPointColor={handleSetPointColor}
                   onExportPoints={handleExportPoints}
                   onSaveProject={handleSaveProject}
                   onShowMedia={handleOpenLightbox}

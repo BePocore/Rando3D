@@ -35,7 +35,9 @@ import { pointTypeLabels } from '../lib/pointMeta'
 import { ElevationProfile } from './ElevationProfile'
 import { PointDetail } from './PointDetail'
 import { PointTypeIcon } from './PointTypeIcon'
-import { traceColor } from './TrailMap'
+import { ColorSwatches } from './ColorSwatches'
+import { paletteColors, traceColor } from './TrailMap'
+import { newPointTitle } from '../App'
 
 type StudioPanelProps = {
   selectedPoint: TrailPoint | null
@@ -50,12 +52,14 @@ type StudioPanelProps = {
   onImportGpx: (files: File[]) => Promise<void>
   onDeleteTrace: (traceId: string) => void
   onRenameTrace: (traceId: string, name: string) => void
+  onSetTraceColor: (traceId: string, color: string) => void
   onImportPoints: (file: File) => Promise<void>
   onImportMedia: (files: File[]) => Promise<void>
   onAddPoint: (point: TrailPoint) => void
   onUpdatePoint: (point: TrailPoint) => void
   onDeletePoint: (pointId: string) => void
   onToggleLock: (pointId: string) => void
+  onSetPointColor: (pointId: string, color: string) => void
   onExportPoints: () => void
   onSaveProject: () => Promise<void>
   onShowMedia: (media: LightboxMedia) => void
@@ -216,6 +220,7 @@ type SelectedPointEditorProps = {
   onUpdatePoint: (point: TrailPoint) => void
   onDeletePoint: (pointId: string) => void
   onToggleLock: (pointId: string) => void
+  onSetPointColor: (pointId: string, color: string) => void
 }
 
 function SelectedPointEditor({
@@ -226,6 +231,7 @@ function SelectedPointEditor({
   onUpdatePoint,
   onDeletePoint,
   onToggleLock,
+  onSetPointColor,
 }: SelectedPointEditorProps) {
   const [editDraft, setEditDraft] = useState(() =>
     draftFromPoint(selectedPoint, mediaLibrary),
@@ -320,6 +326,14 @@ function SelectedPointEditor({
           <span>Titre</span>
           <input
             value={editDraft.title}
+            placeholder="Nom du point"
+            onFocus={(event) => {
+              // Le titre par défaut s'efface dès qu'on commence à nommer.
+              if (editDraft.title === newPointTitle) {
+                updateEditDraft('title', '')
+                event.target.value = ''
+              }
+            }}
             onChange={(event) => updateEditDraft('title', event.target.value)}
           />
         </label>
@@ -337,6 +351,17 @@ function SelectedPointEditor({
             <option value="360">360</option>
             <option value="poi">POI</option>
           </select>
+        </label>
+
+        <label className="color-field">
+          <span>Couleur du point</span>
+          <ColorSwatches
+            colors={paletteColors}
+            value={selectedPoint.color}
+            onSelect={(color) => {
+              if (selectedPoint.id) onSetPointColor(selectedPoint.id, color)
+            }}
+          />
         </label>
 
         <div className="field-grid">
@@ -419,12 +444,14 @@ export function StudioPanel({
   onImportGpx,
   onDeleteTrace,
   onRenameTrace,
+  onSetTraceColor,
   onImportPoints,
   onImportMedia,
   onAddPoint,
   onUpdatePoint,
   onDeletePoint,
   onToggleLock,
+  onSetPointColor,
   onExportPoints,
   onSaveProject,
   onShowMedia,
@@ -441,6 +468,7 @@ export function StudioPanel({
   const [activeTab, setActiveTab] = useState<PanelTab>('points')
   const [draft, setDraft] = useState<DraftPoint>(initialDraft)
   const [formError, setFormError] = useState<string | null>(null)
+  const [paletteTraceId, setPaletteTraceId] = useState<string | null>(null)
 
   const selectedMedia = useMemo(
     () => mediaLibrary.find((media) => media.id === draft.mediaId),
@@ -514,6 +542,7 @@ export function StudioPanel({
         onUpdatePoint={onUpdatePoint}
         onDeletePoint={onDeletePoint}
         onToggleLock={onToggleLock}
+        onSetPointColor={onSetPointColor}
       />
     )
   }
@@ -676,33 +705,55 @@ export function StudioPanel({
 
           {traces.length > 0 ? (
             <div className="trace-list">
-              {traces.map((trace, index) => (
-                <div className="trace-row" key={trace.id}>
-                  <span
-                    className="trace-color"
-                    style={{ background: traceColor(index) }}
-                    aria-hidden="true"
-                  />
-                  <Route aria-hidden="true" size={15} />
-                  <input
-                    className="trace-name"
-                    value={trace.name}
-                    aria-label="Nom de la trace"
-                    onChange={(event) =>
-                      onRenameTrace(trace.id, event.target.value)
-                    }
-                  />
-                  <button
-                    className="trace-delete"
-                    type="button"
-                    aria-label={`Supprimer ${trace.name}`}
-                    title="Supprimer la trace"
-                    onClick={() => onDeleteTrace(trace.id)}
-                  >
-                    <Trash2 aria-hidden="true" size={15} />
-                  </button>
-                </div>
-              ))}
+              {traces.map((trace, index) => {
+                const color = trace.color ?? traceColor(index)
+                return (
+                  <div className="trace-item" key={trace.id}>
+                    <div className="trace-row">
+                      <button
+                        className="trace-color"
+                        style={{ background: color }}
+                        type="button"
+                        aria-label="Changer la couleur de la trace"
+                        title="Couleur de la trace"
+                        onClick={() =>
+                          setPaletteTraceId((current) =>
+                            current === trace.id ? null : trace.id,
+                          )
+                        }
+                      />
+                      <Route aria-hidden="true" size={15} />
+                      <input
+                        className="trace-name"
+                        value={trace.name}
+                        aria-label="Nom de la trace"
+                        onChange={(event) =>
+                          onRenameTrace(trace.id, event.target.value)
+                        }
+                      />
+                      <button
+                        className="trace-delete"
+                        type="button"
+                        aria-label={`Supprimer ${trace.name}`}
+                        title="Supprimer la trace"
+                        onClick={() => onDeleteTrace(trace.id)}
+                      >
+                        <Trash2 aria-hidden="true" size={15} />
+                      </button>
+                    </div>
+                    {paletteTraceId === trace.id ? (
+                      <ColorSwatches
+                        colors={paletteColors}
+                        value={color}
+                        onSelect={(selected) => {
+                          onSetTraceColor(trace.id, selected)
+                          setPaletteTraceId(null)
+                        }}
+                      />
+                    ) : null}
+                  </div>
+                )
+              })}
             </div>
           ) : null}
 
