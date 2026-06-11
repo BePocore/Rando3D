@@ -56,6 +56,19 @@ export type UploadProgress = {
   percentage: number
 }
 
+export type ImportReportEntry = {
+  name: string
+  detail?: string
+}
+
+export type ImportReport = {
+  total: number
+  placed: ImportReportEntry[]
+  noGps: ImportReportEntry[]
+  offTrack: ImportReportEntry[]
+  failed: ImportReportEntry[]
+}
+
 export type TrailStats = {
   distanceMeters: number
   elevationGainMeters: number

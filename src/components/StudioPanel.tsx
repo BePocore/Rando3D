@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import {
   Camera,
   Cloud,
@@ -9,13 +9,17 @@ import {
   Image,
   List,
   LockKeyhole,
+  MapPinOff,
   Mountain,
   Plus,
+  TriangleAlert,
   UploadCloud,
   Video,
+  X,
 } from 'lucide-react'
 import type {
   ImportedMedia,
+  ImportReport,
   PointType,
   TrackPoint,
   TrailPoint,
@@ -50,8 +54,99 @@ type StudioPanelProps = {
   isSaving: boolean
   isUploading: boolean
   uploadProgress: UploadProgress | null
+  importReport: ImportReport | null
+  onDismissReport: () => void
   onAdminPasswordChange: (password: string) => void
   saveStatus: string | null
+}
+
+type ReportSection = {
+  key: string
+  title: string
+  icon: ReactNode
+  tone: 'ok' | 'warn' | 'error'
+  entries: ImportReport['placed']
+}
+
+function ImportReportCard({
+  report,
+  onDismiss,
+}: {
+  report: ImportReport
+  onDismiss: () => void
+}) {
+  const allSections: ReportSection[] = [
+    {
+      key: 'noGps',
+      title: 'Sans position GPS',
+      icon: <MapPinOff aria-hidden="true" size={15} />,
+      tone: 'warn',
+      entries: report.noGps,
+    },
+    {
+      key: 'offTrack',
+      title: 'Position douteuse',
+      icon: <TriangleAlert aria-hidden="true" size={15} />,
+      tone: 'warn',
+      entries: report.offTrack,
+    },
+    {
+      key: 'failed',
+      title: 'Échec d’envoi',
+      icon: <TriangleAlert aria-hidden="true" size={15} />,
+      tone: 'error',
+      entries: report.failed,
+    },
+  ]
+  const sections = allSections.filter((section) => section.entries.length > 0)
+
+  return (
+    <div className="import-report" role="status">
+      <div className="import-report-head">
+        <strong>
+          Rapport d’import · {report.placed.length}/{report.total} placé(s)
+        </strong>
+        <button
+          aria-label="Fermer le rapport"
+          className="import-report-close"
+          type="button"
+          onClick={onDismiss}
+        >
+          <X aria-hidden="true" size={15} />
+        </button>
+      </div>
+
+      {sections.length === 0 ? (
+        <p className="import-report-empty">
+          Tous les médias géolocalisés ont été placés sur le tracé.
+        </p>
+      ) : (
+        sections.map((section) => (
+          <div
+            className={`import-report-section tone-${section.tone}`}
+            key={section.key}
+          >
+            <div className="import-report-section-head">
+              {section.icon}
+              <span>
+                {section.title} · {section.entries.length}
+              </span>
+            </div>
+            <ul>
+              {section.entries.map((entry) => (
+                <li key={entry.name}>
+                  <span className="import-report-name">{entry.name}</span>
+                  {entry.detail ? (
+                    <small>{entry.detail}</small>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      )}
+    </div>
+  )
 }
 
 type PanelTab = 'points' | 'import' | 'add'
@@ -324,6 +419,8 @@ export function StudioPanel({
   isSaving,
   isUploading,
   uploadProgress,
+  importReport,
+  onDismissReport,
   onAdminPasswordChange,
   saveStatus,
 }: StudioPanelProps) {
@@ -464,6 +561,12 @@ export function StudioPanel({
           </div>
         ) : null}
         {saveStatus ? <p className="save-status">{saveStatus}</p> : null}
+        {importReport ? (
+          <ImportReportCard
+            report={importReport}
+            onDismiss={onDismissReport}
+          />
+        ) : null}
       </div>
 
       <div className="tabs" role="tablist" aria-label="Sections du studio">

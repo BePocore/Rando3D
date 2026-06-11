@@ -25,13 +25,14 @@ import { StudioPanel } from './components/StudioPanel'
 import { StatsBar } from './components/StatsBar'
 import { TrailMap } from './components/TrailMap'
 import type { CameraCommand } from './components/TrailMap'
-import { computeTrailStats } from './lib/geo'
+import { computeTrailStats, distanceBetween } from './lib/geo'
 import { parseGpx } from './lib/gpx'
-import { createImportedMedia } from './lib/media'
+import { createImportedMedia, mediaKindFromFile } from './lib/media'
 import { cesiumIonToken, terrainStatusLabel } from './lib/terrain'
 import { defaultBasemap, type BasemapId } from './lib/basemaps'
 import type {
   ImportedMedia,
+  ImportReport,
   PointType,
   TrailPoint,
   TrailProject,
@@ -121,6 +122,51 @@ const safeMediaPath = (fileName: string): string => {
   return `rando3d/media/${Date.now()}-${cleanName || 'media'}`
 }
 
+// Nombre d'envois simultanés vers Vercel Blob lors d'un import groupé.
+const uploadConcurrency = 4
+
+// Seuil au-delà duquel un média géolocalisé est jugé « hors tracé ».
+// Adaptatif : proportionnel à l'emprise de la trace, plancher à 3 km.
+const offTrackThresholdMeters = (track: TrackPoint[]): number => {
+  if (track.length < 2) return Number.POSITIVE_INFINITY
+
+  let minLat = Infinity
+  let maxLat = -Infinity
+  let minLng = Infinity
+  let maxLng = -Infinity
+  for (const point of track) {
+    if (point.lat < minLat) minLat = point.lat
+    if (point.lat > maxLat) maxLat = point.lat
+    if (point.lng < minLng) minLng = point.lng
+    if (point.lng > maxLng) maxLng = point.lng
+  }
+
+  const diagonal = distanceBetween(
+    { lat: minLat, lng: minLng },
+    { lat: maxLat, lng: maxLng },
+  )
+  return Math.max(3_000, diagonal * 0.75)
+}
+
+const distanceToTrack = (
+  target: Pick<TrackPoint, 'lat' | 'lng'>,
+  track: TrackPoint[],
+): number => {
+  let nearest = Number.POSITIVE_INFINITY
+  for (const point of track) {
+    const distance = distanceBetween(target, point)
+    if (distance < nearest) nearest = distance
+  }
+  return nearest
+}
+
+const formatKilometers = (meters: number): string => {
+  if (meters < 1_000) return `${Math.round(meters)} m`
+  return `${(meters / 1_000).toLocaleString('fr-FR', {
+    maximumFractionDigits: 1,
+  })} km`
+}
+
 function App() {
   const [isStudioMode] = useState(() => isStudioUrl())
   const [isPanelOpen, setIsPanelOpen] = useState(() => isStudioUrl())
@@ -137,6 +183,7 @@ function App() {
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
     null,
   )
+  const [importReport, setImportReport] = useState<ImportReport | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saveStatus, setSaveStatus] = useState<string | null>(null)
   const [adminPassword, setAdminPassword] = useState(() =>
@@ -335,33 +382,51 @@ function App() {
       return
     }
 
+    const mediaFiles = files.filter((file) => mediaKindFromFile(file) !== null)
+    if (mediaFiles.length === 0) {
+      setSaveStatus('Aucune photo ou vidéo reconnue dans la sélection.')
+      return
+    }
+
     setIsUploading(true)
-    setSaveStatus('Envoi des medias vers Vercel...')
+    setImportReport(null)
+    setSaveStatus(`Envoi de ${mediaFiles.length} média(s) vers Vercel...`)
 
-    const importedMedia: ImportedMedia[] = []
-    const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
-    let sentBytes = 0
+    // Progression globale basée sur les octets, robuste à la concurrence.
+    const totalBytes = mediaFiles.reduce((sum, file) => sum + file.size, 0) || 1
+    const loadedByIndex = new Array<number>(mediaFiles.length).fill(0)
+    let completedCount = 0
 
-    try {
-      for (const [index, file] of files.entries()) {
-        const media = await createImportedMedia(file)
-        if (!media) {
-          sentBytes += file.size
-          continue
-        }
+    const refreshProgress = (currentName: string) => {
+      const loaded = loadedByIndex.reduce((sum, value) => sum + value, 0)
+      setUploadProgress({
+        fileIndex: Math.min(completedCount + 1, mediaFiles.length),
+        fileCount: mediaFiles.length,
+        fileName: currentName,
+        percentage: Math.min(Math.round((loaded / totalBytes) * 100), 100),
+      })
+    }
 
-        const progressBase: Omit<UploadProgress, 'percentage'> = {
-          fileIndex: index + 1,
-          fileCount: files.length,
-          fileName: file.name,
-        }
-        setUploadProgress({
-          ...progressBase,
-          percentage:
-            totalBytes > 0 ? Math.round((sentBytes / totalBytes) * 100) : 0,
-        })
+    const results = new Array<ImportedMedia | null>(mediaFiles.length).fill(null)
+    const failed: ImportReport['failed'] = []
+    let cursor = 0
 
+    // Un fichier en échec n'interrompt plus le lot : on consigne et on continue.
+    const worker = async () => {
+      while (cursor < mediaFiles.length) {
+        const index = cursor
+        cursor += 1
+        const file = mediaFiles[index]
+        refreshProgress(file.name)
+
+        let media: ImportedMedia | null = null
         try {
+          media = await createImportedMedia(file)
+          if (!media) {
+            failed.push({ name: file.name, detail: 'format non reconnu' })
+            continue
+          }
+
           const blob = await upload(safeMediaPath(file.name), file, {
             access: 'public',
             handleUploadUrl: '/api/upload',
@@ -371,61 +436,86 @@ function App() {
             contentType: file.type || 'application/octet-stream',
             multipart: file.size > 10 * 1024 * 1024,
             onUploadProgress: ({ loaded }) => {
-              setUploadProgress({
-                ...progressBase,
-                percentage:
-                  totalBytes > 0
-                    ? Math.min(
-                        Math.round(((sentBytes + loaded) / totalBytes) * 100),
-                        100,
-                      )
-                    : 0,
-              })
+              loadedByIndex[index] = loaded
+              refreshProgress(file.name)
             },
           })
 
-          importedMedia.push({
-            ...media,
-            url: blob.url,
+          results[index] = { ...media, url: blob.url }
+        } catch (uploadError) {
+          failed.push({
+            name: file.name,
+            detail:
+              uploadError instanceof Error
+                ? uploadError.message
+                : 'envoi impossible',
           })
-          sentBytes += file.size
         } finally {
-          URL.revokeObjectURL(media.url)
+          if (media) URL.revokeObjectURL(media.url)
+          loadedByIndex[index] = file.size
+          completedCount += 1
+          refreshProgress(file.name)
         }
       }
-    } catch (uploadError) {
-      setSaveStatus(
-        uploadError instanceof Error
-          ? uploadError.message
-          : 'Envoi des medias impossible.',
-      )
-      return
-    } finally {
-      setIsUploading(false)
-      setUploadProgress(null)
     }
 
-    if (importedMedia.length === 0) return
-
-    const positionedMedia = importedMedia.filter(
-      (media) => media.lat !== undefined && media.lng !== undefined,
+    await Promise.all(
+      Array.from({ length: Math.min(uploadConcurrency, mediaFiles.length) }, () =>
+        worker(),
+      ),
     )
 
-    setMediaLibrary((current) => {
-      const names = new Set(current.map((media) => media.name.toLowerCase()))
-      const uniqueMedia = importedMedia.filter(
-        (media) => !names.has(media.name.toLowerCase()),
-      )
-      return [...current, ...uniqueMedia]
-    })
+    setIsUploading(false)
+    setUploadProgress(null)
 
-    if (positionedMedia.length > 0) {
+    const importedMedia = results.filter(
+      (media): media is ImportedMedia => media !== null,
+    )
+
+    // Classement vs tracé : sans GPS / position aberrante / placé.
+    const threshold = offTrackThresholdMeters(track)
+    const noGps: ImportReport['noGps'] = []
+    const offTrack: ImportReport['offTrack'] = []
+    const placed: ImportReport['placed'] = []
+    const placedMedia: ImportedMedia[] = []
+
+    for (const media of importedMedia) {
+      if (media.lat === undefined || media.lng === undefined) {
+        noGps.push({ name: media.name })
+        continue
+      }
+      const distance = distanceToTrack(
+        { lat: media.lat, lng: media.lng },
+        track,
+      )
+      if (distance > threshold) {
+        offTrack.push({
+          name: media.name,
+          detail: `à ${formatKilometers(distance)} du tracé`,
+        })
+        continue
+      }
+      placed.push({ name: media.name })
+      placedMedia.push(media)
+    }
+
+    if (importedMedia.length > 0) {
+      setMediaLibrary((current) => {
+        const names = new Set(current.map((media) => media.name.toLowerCase()))
+        const uniqueMedia = importedMedia.filter(
+          (media) => !names.has(media.name.toLowerCase()),
+        )
+        return [...current, ...uniqueMedia]
+      })
+    }
+
+    if (placedMedia.length > 0) {
       const existingMediaNames = new Set(
         points
           .map((point) => point.mediaName?.toLowerCase())
           .filter((name): name is string => Boolean(name)),
       )
-      const autoPoints = positionedMedia
+      const autoPoints = placedMedia
         .filter((media) => !existingMediaNames.has(media.name.toLowerCase()))
         .map<TrailPoint>((media) => ({
           id: `media-${media.id}`,
@@ -447,9 +537,25 @@ function App() {
       }
     }
 
+    setImportReport({
+      total: mediaFiles.length,
+      placed,
+      noGps,
+      offTrack,
+      failed,
+    })
+
     setError(null)
-    setSaveStatus('Medias envoyes. Publie la carte pour partager les points.')
-  }, [adminPassword, points])
+    setSaveStatus(
+      failed.length > 0
+        ? `${importedMedia.length}/${mediaFiles.length} média(s) envoyé(s). Voir le rapport.`
+        : 'Medias envoyes. Publie la carte pour partager les points.',
+    )
+  }, [adminPassword, points, track])
+
+  const handleDismissReport = useCallback(() => {
+    setImportReport(null)
+  }, [])
 
   const handleAddPoint = useCallback((point: TrailPoint) => {
     setPoints((current) => [...current, point])
@@ -761,6 +867,8 @@ function App() {
                   isSaving={isSaving}
                   isUploading={isUploading}
                   uploadProgress={uploadProgress}
+                  importReport={importReport}
+                  onDismissReport={handleDismissReport}
                   onAdminPasswordChange={handleAdminPasswordChange}
                   saveStatus={saveStatus}
                 />
