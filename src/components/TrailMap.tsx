@@ -29,7 +29,7 @@ import {
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
 import type { ImportedMedia, TrailPoint, TrackPoint } from '../types'
-import { nearestElevation } from '../lib/geo'
+import { nearestElevation, simplifyTrack } from '../lib/geo'
 import { markerDataUri } from '../lib/markers'
 import { resolvePointMedia } from '../lib/media'
 import { cesiumIonToken, useWorldTerrain } from '../lib/terrain'
@@ -53,7 +53,7 @@ type CesiumNavigationInstance = {
   destroy: () => void
 }
 
-const routeOutlineColor = Color.fromCssColorString('#ffffff').withAlpha(0.78)
+const routeOutlineColor = Color.fromCssColorString('#dff7f0')
 const routeColor = Color.fromCssColorString('#145c52')
 const arcGisTerrainUrl =
   'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer'
@@ -169,6 +169,11 @@ export function TrailMap({
 
     const container = containerRef.current
     container.replaceChildren()
+    const hasCoarsePointer =
+      window.matchMedia('(pointer: coarse)').matches ||
+      navigator.maxTouchPoints > 0 ||
+      window.innerWidth <= 1_180
+    const isCompactViewport = window.innerWidth <= 1_180
 
     const viewer = new Viewer(container, {
       animation: false,
@@ -183,14 +188,44 @@ export function TrailMap({
       timeline: false,
       baseLayer: false,
       terrainProvider: new EllipsoidTerrainProvider(),
-      shouldAnimate: true,
+      shouldAnimate: false,
+      requestRenderMode: true,
+      maximumRenderTimeChange: Number.POSITIVE_INFINITY,
+      msaaSamples: hasCoarsePointer ? 1 : 2,
+      useBrowserRecommendedResolution: true,
+      orderIndependentTranslucency: false,
+      contextOptions: {
+        webgl: {
+          antialias: false,
+          powerPreference: 'high-performance',
+        },
+      },
     })
+
+    const idleResolutionScale = hasCoarsePointer
+      ? isCompactViewport
+        ? 0.9
+        : 0.95
+      : 1
+    const movingResolutionScale = hasCoarsePointer ? 0.68 : 0.84
+    const idleTerrainError = hasCoarsePointer ? 2.5 : 1.8
+    const movingTerrainError = hasCoarsePointer ? 5.5 : 3.2
+    viewer.resolutionScale = idleResolutionScale
+    container.dataset.renderProfile = hasCoarsePointer ? 'adaptive' : 'quality'
+    container.dataset.renderScale = String(idleResolutionScale)
+    viewer.scene.postProcessStages.fxaa.enabled = !hasCoarsePointer
+    viewer.scene.globe.maximumScreenSpaceError = idleTerrainError
+    viewer.scene.globe.tileCacheSize = hasCoarsePointer ? 180 : 260
+    viewer.scene.globe.preloadAncestors = true
+    viewer.scene.globe.preloadSiblings = false
+    viewer.scene.globe.loadingDescendantLimit = hasCoarsePointer ? 12 : 20
 
     if (useWorldTerrain) {
       void ArcGISTiledElevationTerrainProvider.fromUrl(arcGisTerrainUrl)
         .then((terrainProvider) => {
           if (!viewer.isDestroyed()) {
             viewer.terrainProvider = terrainProvider
+            viewer.scene.requestRender()
           }
         })
         .catch(() => {
@@ -223,8 +258,8 @@ export function TrailMap({
     if (viewer.scene.moon) {
       viewer.scene.moon.show = false
     }
+    viewer.scene.fog.enabled = false
     const cameraController = viewer.scene.screenSpaceCameraController
-    const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches
     cameraController.enableCollisionDetection = true
     cameraController.minimumZoomDistance = 60
     cameraController.maximumZoomDistance = 60_000
@@ -271,7 +306,12 @@ export function TrailMap({
     viewerRef.current = viewer
     pointsByEntityId.current.clear()
 
-    const routePositions = track.map((point) =>
+    const renderedTrack = simplifyTrack(
+      track,
+      hasCoarsePointer ? 4 : 2,
+      hasCoarsePointer ? 2_000 : 4_000,
+    )
+    const routePositions = renderedTrack.map((point) =>
       Cartesian3.fromDegrees(point.lng, point.lat, 0),
     )
 
@@ -347,6 +387,54 @@ export function TrailMap({
       })
     })
 
+    let restoreQualityTimer: number | undefined
+    let lowQualityMode = false
+    const applyMovingQuality = () => {
+      if (restoreQualityTimer !== undefined) {
+        window.clearTimeout(restoreQualityTimer)
+        restoreQualityTimer = undefined
+      }
+      if (lowQualityMode) return
+
+      lowQualityMode = true
+      viewer.resolutionScale = movingResolutionScale
+      container.dataset.renderScale = String(movingResolutionScale)
+      viewer.scene.globe.maximumScreenSpaceError = movingTerrainError
+      viewer.scene.postProcessStages.fxaa.enabled = false
+      viewer.scene.requestRender()
+    }
+    const scheduleIdleQuality = () => {
+      if (restoreQualityTimer !== undefined) {
+        window.clearTimeout(restoreQualityTimer)
+      }
+      restoreQualityTimer = window.setTimeout(() => {
+        if (viewer.isDestroyed()) return
+
+        lowQualityMode = false
+        viewer.resolutionScale = idleResolutionScale
+        container.dataset.renderScale = String(idleResolutionScale)
+        viewer.scene.globe.maximumScreenSpaceError = idleTerrainError
+        viewer.scene.postProcessStages.fxaa.enabled = !hasCoarsePointer
+        viewer.scene.requestRender()
+      }, 420)
+    }
+    const handleInteractionStart = () => applyMovingQuality()
+    const handleInteractionEnd = () => scheduleIdleQuality()
+    const handleWheel = () => {
+      applyMovingQuality()
+      scheduleIdleQuality()
+    }
+    container.addEventListener('pointerdown', handleInteractionStart, {
+      passive: true,
+    })
+    window.addEventListener('pointerup', handleInteractionEnd, {
+      passive: true,
+    })
+    window.addEventListener('pointercancel', handleInteractionEnd, {
+      passive: true,
+    })
+    container.addEventListener('wheel', handleWheel, { passive: true })
+
     const clickHandler = new ScreenSpaceEventHandler(viewer.scene.canvas)
     clickHandler.setInputAction(
       (movement: { position: Cartesian2 }) => {
@@ -364,6 +452,13 @@ export function TrailMap({
     flyToTrail(viewer, track, points, 0.9)
 
     return () => {
+      if (restoreQualityTimer !== undefined) {
+        window.clearTimeout(restoreQualityTimer)
+      }
+      container.removeEventListener('pointerdown', handleInteractionStart)
+      window.removeEventListener('pointerup', handleInteractionEnd)
+      window.removeEventListener('pointercancel', handleInteractionEnd)
+      container.removeEventListener('wheel', handleWheel)
       clickHandler.destroy()
       navigation.destroy()
       viewer.destroy()
