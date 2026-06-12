@@ -3,20 +3,17 @@ import { resolvePointMedia } from './lib/media'
 import type { ImportedMedia, TrailPoint } from './types'
 
 // Vignette « carte » cuite dans un seul billboard (clustering correct) :
-// photo à coins arrondis, fin liseré blanc + ombre douce, et un point
-// d'ancrage relié sous la carte pour matérialiser l'emplacement au sol.
+// photo à coins arrondis, fin liseré blanc + ombre douce. La carte est
+// centrée sur sa coordonnée côté carte (billboard verticalOrigin CENTER).
 const cache = new Map<string, string>()
 
 // Dimensions logiques de la vignette (avant facteur retina). Réutilisées côté
 // carte pour dimensionner le billboard sans déformer l'image.
 export const framedCardWidth = 80
 export const framedCardHeight = 56
-const framedGap = 6 // espace carte → point d'ancrage
-const framedDotRadius = 3.5
 export const framedPad = 5 // marge pour l'ombre
 export const framedCanvasWidth = framedCardWidth + framedPad * 2
-export const framedCanvasHeight =
-  framedPad + framedCardHeight + framedGap + framedDotRadius * 2
+export const framedCanvasHeight = framedCardHeight + framedPad * 2
 
 const roundRect = (
   ctx: CanvasRenderingContext2D,
@@ -50,8 +47,6 @@ const frameThumbnail = (src: string): Promise<string | null> =>
         const cardH = framedCardHeight * s
         const border = 2 * s
         const radius = 9 * s
-        const dotR = framedDotRadius * s
-        const cx = w / 2
 
         const canvas = document.createElement('canvas')
         canvas.width = w
@@ -93,23 +88,6 @@ const frameThumbnail = (src: string): Promise<string | null> =>
           dh,
         )
         ctx.restore()
-
-        // Connecteur + point d'ancrage au sol (bas-centre du canvas).
-        const dotY = h - dotR
-        ctx.strokeStyle = 'rgba(12, 21, 18, 0.85)'
-        ctx.lineWidth = 2.5 * s
-        ctx.beginPath()
-        ctx.moveTo(cx, pad + cardH)
-        ctx.lineTo(cx, dotY)
-        ctx.stroke()
-
-        ctx.beginPath()
-        ctx.arc(cx, dotY, dotR, 0, Math.PI * 2)
-        ctx.fillStyle = 'rgba(12, 21, 18, 0.9)'
-        ctx.fill()
-        ctx.lineWidth = 1.5 * s
-        ctx.strokeStyle = '#ffffff'
-        ctx.stroke()
 
         resolve(canvas.toDataURL('image/png'))
       } catch {

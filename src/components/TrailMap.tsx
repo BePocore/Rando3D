@@ -37,8 +37,8 @@ import { resolvePointMedia } from '../lib/media'
 import {
   framedCanvasHeight,
   framedCanvasWidth,
+  framedCardHeight,
   framedCardWidth,
-  framedPad,
 } from '../useFramedThumbnails'
 import { cesiumIonToken, useWorldTerrain } from '../lib/terrain'
 import type { BasemapId } from '../lib/basemaps'
@@ -503,14 +503,19 @@ export function TrailMap({
     pointSource.clustering.clusterPoints = true
     pointSource.clustering.clusterEvent.addEventListener(
       (clustered, cluster) => {
-        // Cherche la vignette du premier point du groupe pour l'afficher
-        // dans l'icône de pile au lieu des cartes blanches vides.
-        const firstEntity = clustered[0]
-        const firstPoint = firstEntity?.id
-          ? pointsByEntityId.current.get(firstEntity.id as string)
+        // Ancre déterministe : on épingle le groupe sur une vraie photo (id le
+        // plus petit) au lieu du centroïde mouvant → ne bouge pas au zoom.
+        const anchorEntity = [...clustered].sort((a, b) =>
+          String(a.id).localeCompare(String(b.id)),
+        )[0]
+        const anchorPosition = anchorEntity?.position?.getValue(
+          viewer.clock.currentTime,
+        )
+        const anchorPoint = anchorEntity?.id
+          ? pointsByEntityId.current.get(anchorEntity.id as string)
           : undefined
-        const media = firstPoint
-          ? resolvePointMedia(firstPoint, mediaLibraryRef.current)
+        const media = anchorPoint
+          ? resolvePointMedia(anchorPoint, mediaLibraryRef.current)
           : undefined
         const poster = media?.kind === 'video' ? videoPostersRef.current[media.src] : undefined
         const thumbnailSrc = media?.kind === 'image' ? media.src : poster
@@ -520,11 +525,12 @@ export function TrailMap({
         cluster.billboard.image = framed ?? clusterStackUri
         cluster.billboard.width = framed ? thumbnailFrameWidth : 56
         cluster.billboard.height = framed ? thumbnailFrameHeight : 52
-        cluster.billboard.verticalOrigin = framed ? VerticalOrigin.BOTTOM : VerticalOrigin.CENTER
+        cluster.billboard.verticalOrigin = VerticalOrigin.CENTER
         cluster.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY
         if (framed) cluster.billboard.scaleByDistance = thumbnailScaleByDistance
+        if (anchorPosition) cluster.billboard.position = anchorPosition
 
-        // Pastille ronde de comptage, collée au coin haut-droit de la carte
+        // Pastille de comptage, collée au coin haut-droit de la carte centrée
         // et mise à l'échelle avec la vignette (reste accrochée à tous zooms).
         cluster.label.show = true
         cluster.label.text = String(clustered.length)
@@ -537,11 +543,12 @@ export function TrailMap({
         cluster.label.horizontalOrigin = HorizontalOrigin.CENTER
         cluster.label.verticalOrigin = VerticalOrigin.CENTER
         cluster.label.disableDepthTestDistance = Number.POSITIVE_INFINITY
+        if (anchorPosition) cluster.label.position = anchorPosition
         if (framed) {
-          // Repère = bas-centre du canvas ; coin haut-droit de la carte au-dessus.
+          // Coin haut-droit de la carte (centrée sur la coordonnée).
           cluster.label.pixelOffset = new Cartesian2(
             framedCardWidth / 2 - 2,
-            -(framedCanvasHeight - framedPad - 4),
+            -(framedCardHeight / 2 - 2),
           )
           cluster.label.scaleByDistance = thumbnailScaleByDistance
           cluster.label.pixelOffsetScaleByDistance = thumbnailScaleByDistance
@@ -692,7 +699,11 @@ export function TrailMap({
               : markerDataUri(point.type),
           width: showThumbnail ? thumbnailFrameWidth : 42,
           height: showThumbnail ? thumbnailFrameHeight : 50,
-          verticalOrigin: VerticalOrigin.BOTTOM,
+          // Vignette centrée sur la coordonnée (reste plantée au zoom) ;
+          // pin ancré par sa pointe.
+          verticalOrigin: showThumbnail
+            ? VerticalOrigin.CENTER
+            : VerticalOrigin.BOTTOM,
           heightReference,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
           scaleByDistance: thumbnailScaleByDistance,
