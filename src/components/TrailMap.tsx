@@ -29,9 +29,10 @@ import {
   type Entity,
 } from 'cesium'
 import 'cesium/Build/Cesium/Widgets/widgets.css'
-import type { Trace, TrailPoint, TrackPoint } from '../types'
+import type { ImportedMedia, Trace, TrailPoint, TrackPoint } from '../types'
 import { simplifyTrack } from '../lib/geo'
 import { markerDataUri } from '../lib/markers'
+import { resolvePointMedia } from '../lib/media'
 import { cesiumIonToken, useWorldTerrain } from '../lib/terrain'
 import type { BasemapId } from '../lib/basemaps'
 
@@ -40,11 +41,14 @@ if (cesiumIonToken) Ion.defaultAccessToken = cesiumIonToken
 type TrailMapProps = {
   traces: Trace[]
   points: TrailPoint[]
+  mediaLibrary: ImportedMedia[]
   basemap: BasemapId
   recenterRequest: number
   selectedPoint: TrailPoint | null
   cameraCommand: CameraCommand | null
   editable?: boolean
+  videoPosters?: Record<string, string>
+  framedThumbnails?: Record<string, string>
   onMovePoint?: (pointId: string, lat: number, lng: number) => void
   onCreatePoint?: (lat: number, lng: number) => void
   onMarkerClick: (point: TrailPoint) => void
@@ -109,6 +113,8 @@ export const coloredMarkerDataUri = (color: string): string => {
 const combineTracePoints = (traces: Trace[]): TrackPoint[] =>
   traces.flatMap((trace) => trace.points)
 
+const thumbnailFrameWidth = 84
+const thumbnailFrameHeight = 64
 const thumbnailScaleByDistance = new NearFarScalar(1_000, 1, 160_000, 0.6)
 const arcGisTerrainUrl =
   'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer'
@@ -200,11 +206,14 @@ const createBaseLayer = (basemap: BasemapId): ImageryLayer => {
 export function TrailMap({
   traces,
   points,
+  mediaLibrary,
   basemap,
   recenterRequest,
   selectedPoint,
   cameraCommand,
   editable = false,
+  videoPosters = {},
+  framedThumbnails = {},
   onMovePoint,
   onCreatePoint,
   onMarkerClick,
@@ -222,6 +231,9 @@ export function TrailMap({
   const editableRef = useRef(editable)
   const selectedKeyRef = useRef<string | null>(null)
   const didInitialFitRef = useRef(false)
+  const mediaLibraryRef = useRef(mediaLibrary)
+  const videoPostersRef = useRef(videoPosters)
+  const framedThumbnailsRef = useRef(framedThumbnails)
 
   useEffect(() => {
     onMarkerClickRef.current = onMarkerClick
@@ -229,7 +241,10 @@ export function TrailMap({
     onCreatePointRef.current = onCreatePoint
     onOpenGroupRef.current = onOpenGroup
     editableRef.current = editable
-  }, [editable, onMovePoint, onCreatePoint, onMarkerClick, onOpenGroup])
+    mediaLibraryRef.current = mediaLibrary
+    videoPostersRef.current = videoPosters
+    framedThumbnailsRef.current = framedThumbnails
+  }, [editable, onMovePoint, onCreatePoint, onMarkerClick, onOpenGroup, mediaLibrary, videoPosters, framedThumbnails])
 
   useEffect(() => {
     const container = containerRef.current
@@ -469,26 +484,46 @@ export function TrailMap({
     const pointSource = new CustomDataSource('points')
     void viewer.dataSources.add(pointSource)
     pointSource.clustering.enabled = true
-    pointSource.clustering.pixelRange = 30
+    // pixelRange ≥ demi-largeur vignette (84/2=42) pour que deux thumbnails
+    // ne se chevauchent visuellement qu'en étant déjà regroupées.
+    pointSource.clustering.pixelRange = 50
     pointSource.clustering.minimumClusterSize = 2
     pointSource.clustering.clusterBillboards = true
     pointSource.clustering.clusterLabels = true
     pointSource.clustering.clusterPoints = true
     pointSource.clustering.clusterEvent.addEventListener(
       (clustered, cluster) => {
+        // Cherche la vignette du premier point du groupe pour l'afficher
+        // dans l'icône de pile au lieu des cartes blanches vides.
+        const firstEntity = clustered[0]
+        const firstPoint = firstEntity?.id
+          ? pointsByEntityId.current.get(firstEntity.id as string)
+          : undefined
+        const media = firstPoint
+          ? resolvePointMedia(firstPoint, mediaLibraryRef.current)
+          : undefined
+        const poster = media?.kind === 'video' ? videoPostersRef.current[media.src] : undefined
+        const thumbnailSrc = media?.kind === 'image' ? media.src : poster
+        const framed = thumbnailSrc ? framedThumbnailsRef.current[thumbnailSrc] : undefined
+
         cluster.billboard.show = true
-        cluster.billboard.image = clusterStackUri
-        cluster.billboard.width = 56
-        cluster.billboard.height = 52
-        cluster.billboard.verticalOrigin = VerticalOrigin.CENTER
+        cluster.billboard.image = framed ?? clusterStackUri
+        cluster.billboard.width = framed ? thumbnailFrameWidth : 56
+        cluster.billboard.height = framed ? thumbnailFrameHeight : 52
+        cluster.billboard.verticalOrigin = framed ? VerticalOrigin.BOTTOM : VerticalOrigin.CENTER
         cluster.billboard.disableDepthTestDistance = Number.POSITIVE_INFINITY
         cluster.label.show = true
         cluster.label.text = String(clustered.length)
-        cluster.label.font = '800 15px Inter, system-ui, sans-serif'
-        cluster.label.fillColor = Color.fromCssColorString('#0c1512')
-        cluster.label.style = LabelStyle.FILL
+        cluster.label.font = '800 14px Inter, system-ui, sans-serif'
+        cluster.label.fillColor = Color.WHITE
+        cluster.label.outlineColor = Color.fromCssColorString('#0c1512')
+        cluster.label.outlineWidth = 3
+        cluster.label.style = LabelStyle.FILL_AND_OUTLINE
         cluster.label.showBackground = false
-        cluster.label.pixelOffset = new Cartesian2(2, 4)
+        // Badge en haut à droite de la vignette
+        cluster.label.pixelOffset = framed
+          ? new Cartesian2(thumbnailFrameWidth / 2 - 10, -(thumbnailFrameHeight - 12))
+          : new Cartesian2(2, 4)
         cluster.label.verticalOrigin = VerticalOrigin.CENTER
         cluster.label.disableDepthTestDistance = Number.POSITIVE_INFINITY
       },
@@ -622,6 +657,12 @@ export function TrailMap({
     points.forEach((point, index) => {
       const id = pointEntityId(point, index)
       pointsByEntityId.current.set(id, point)
+      const media = resolvePointMedia(point, mediaLibrary)
+      const poster =
+        media?.kind === 'video' ? videoPosters[media.src] : undefined
+      const thumbnailSrc = media?.kind === 'image' ? media.src : poster
+      const framed = thumbnailSrc ? framedThumbnails[thumbnailSrc] : undefined
+      const showThumbnail = Boolean(thumbnailSrc)
       const position = Cartesian3.fromDegrees(point.lng, point.lat, 0)
 
       pointSource.entities.add({
@@ -629,11 +670,13 @@ export function TrailMap({
         name: point.title,
         position,
         billboard: {
-          image: point.color
-            ? coloredMarkerDataUri(point.color)
-            : markerDataUri(point.type),
-          width: 42,
-          height: 50,
+          image: showThumbnail
+            ? framed ?? (thumbnailSrc as string)
+            : point.color
+              ? coloredMarkerDataUri(point.color)
+              : markerDataUri(point.type),
+          width: showThumbnail ? thumbnailFrameWidth : 42,
+          height: showThumbnail ? thumbnailFrameHeight : 50,
           verticalOrigin: VerticalOrigin.BOTTOM,
           heightReference,
           disableDepthTestDistance: Number.POSITIVE_INFINITY,
@@ -647,7 +690,7 @@ export function TrailMap({
       didInitialFitRef.current = true
       flyToTrail(viewer, track, points, 0)
     }
-  }, [points, track, traces])
+  }, [mediaLibrary, points, track, traces, videoPosters, framedThumbnails])
 
   useEffect(() => {
     const viewer = viewerRef.current
