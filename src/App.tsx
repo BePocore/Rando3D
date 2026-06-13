@@ -254,6 +254,8 @@ function App() {
   const [recenterRequest, setRecenterRequest] = useState(0)
   const [cameraCommand, setCameraCommand] = useState<CameraCommand | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  // Voile plein écran tant que la carte 3D n'a pas fini de charger ses tuiles.
+  const [mapReady, setMapReady] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(
@@ -1196,6 +1198,7 @@ function App() {
               onCreatePoint={handleCreatePoint}
               onMarkerClick={handleMarkerClick}
               onOpenGroup={handleOpenGroup}
+              onReady={() => setMapReady(true)}
             />
           )}
 
@@ -1297,6 +1300,23 @@ function App() {
       {!isStudioMode && !isLoading && accessCode && !accessGranted ? (
         <AccessGate onSubmit={handleGrantAccess} />
       ) : null}
+
+      <div
+        className={mapReady ? 'app-loader app-loader--done' : 'app-loader'}
+        aria-hidden={mapReady}
+        role="status"
+      >
+        <div className="app-loader-inner">
+          <span className="app-loader-logo">
+            <Compass aria-hidden="true" size={34} />
+          </span>
+          <span className="app-loader-title">Randonnée 3D</span>
+          <span className="app-loader-bar">
+            <span />
+          </span>
+          <span className="app-loader-text">Chargement de la carte…</span>
+        </div>
+      </div>
     </div>
   )
 }

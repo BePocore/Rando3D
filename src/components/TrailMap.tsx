@@ -60,6 +60,8 @@ type TrailMapProps = {
   onCreatePoint?: (lat: number, lng: number) => void
   onMarkerClick: (point: TrailPoint) => void
   onOpenGroup?: (points: TrailPoint[]) => void
+  // Appelé une fois que le globe a fini de charger ses tuiles (carte prête).
+  onReady?: () => void
 }
 
 export type CameraCommand = {
@@ -227,6 +229,7 @@ export function TrailMap({
   onCreatePoint,
   onMarkerClick,
   onOpenGroup,
+  onReady,
 }: TrailMapProps) {
   const track = useMemo(() => combineTracePoints(traces), [traces])
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -238,9 +241,11 @@ export function TrailMap({
   const onMovePointRef = useRef(onMovePoint)
   const onCreatePointRef = useRef(onCreatePoint)
   const onOpenGroupRef = useRef(onOpenGroup)
+  const onReadyRef = useRef(onReady)
   const editableRef = useRef(editable)
   const selectedKeyRef = useRef<string | null>(null)
   const didInitialFitRef = useRef(false)
+  const readyFiredRef = useRef(false)
   const mediaLibraryRef = useRef(mediaLibrary)
   const videoPostersRef = useRef(videoPosters)
   const framedThumbnailsRef = useRef(framedThumbnails)
@@ -250,11 +255,12 @@ export function TrailMap({
     onMovePointRef.current = onMovePoint
     onCreatePointRef.current = onCreatePoint
     onOpenGroupRef.current = onOpenGroup
+    onReadyRef.current = onReady
     editableRef.current = editable
     mediaLibraryRef.current = mediaLibrary
     videoPostersRef.current = videoPosters
     framedThumbnailsRef.current = framedThumbnails
-  }, [editable, onMovePoint, onCreatePoint, onMarkerClick, onOpenGroup, mediaLibrary, videoPosters, framedThumbnails])
+  }, [editable, onMovePoint, onCreatePoint, onMarkerClick, onOpenGroup, onReady, mediaLibrary, videoPosters, framedThumbnails])
 
   useEffect(() => {
     const container = containerRef.current
@@ -609,7 +615,28 @@ export function TrailMap({
 
     viewerRef.current = viewer
 
+    // Signale « carte prête » quand le globe a fini de charger ses tuiles.
+    // tileLoadProgressEvent donne le nombre de tuiles restant à charger : on
+    // attend que le chargement ait démarré (>0) puis se vide (0). Filet de
+    // sécurité : on débloque de toute façon après 12 s.
+    const globe = viewer.scene.globe
+    let loadingStarted = false
+    const fireReady = () => {
+      if (readyFiredRef.current) return
+      readyFiredRef.current = true
+      globe.tileLoadProgressEvent.removeEventListener(handleTileProgress)
+      window.clearTimeout(readyFallback)
+      onReadyRef.current?.()
+    }
+    const handleTileProgress = (queued: number) => {
+      if (queued > 0) loadingStarted = true
+      else if (loadingStarted) fireReady()
+    }
+    globe.tileLoadProgressEvent.addEventListener(handleTileProgress)
+    const readyFallback = window.setTimeout(fireReady, 12_000)
+
     return () => {
+      window.clearTimeout(readyFallback)
       cancelLongPress()
       canvas.removeEventListener('pointerdown', handlePointerDown)
       canvas.removeEventListener('pointermove', handlePointerMove)
