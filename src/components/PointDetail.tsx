@@ -13,6 +13,7 @@ import type { ImportedMedia, TrailPoint } from '../types'
 import type { LightboxMedia } from '../App'
 import { formatMediaQuality, resolvePointMedia } from '../lib/media'
 import { pointTypeLabels } from '../lib/pointMeta'
+import { Panorama360 } from './Panorama360'
 
 type PointDetailProps = {
   point: TrailPoint
@@ -77,6 +78,36 @@ const MediaPreview = ({
         />
         <p className="media-quality">
           Qualite source · {formatMediaQuality(qualityMedia)}
+        </p>
+      </>
+    )
+  }
+
+  // Point 360 avec une image équirectangulaire : visionneuse interactive
+  // directement dans la fiche (drag + zoom), au lieu d'une image plate.
+  if (point.type === '360') {
+    return (
+      <>
+        <div className="panel-360">
+          <Panorama360
+            key={media.src}
+            src={media.src}
+            className="panel-360-viewer"
+            preview
+          />
+          <button
+            className="panel-360-expand"
+            type="button"
+            aria-label="Voir le 360 en grand"
+            onClick={() =>
+              onShowMedia?.({ src: media.src, kind: '360', title: point.title })
+            }
+          >
+            <Maximize2 size={16} />
+          </button>
+        </div>
+        <p className="media-quality">
+          360° · glisse pour explorer, molette ou pincement pour zoomer
         </p>
       </>
     )

@@ -1,62 +1,12 @@
-import {
-  useEffect,
-  useRef,
-  useState,
-  type TouchEvent as ReactTouchEvent,
-} from 'react'
+import { useEffect, useState, type TouchEvent as ReactTouchEvent } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
-import 'pannellum/build/pannellum.css'
-import 'pannellum'
+import { Panorama360 } from './Panorama360'
 import type { LightboxMedia } from '../App'
-
-declare global {
-  interface Window {
-    pannellum: {
-      viewer: (
-        container: HTMLElement,
-        config: Record<string, unknown>,
-      ) => { destroy: () => void }
-    }
-  }
-}
 
 type MediaLightboxProps = {
   items: LightboxMedia[]
   startIndex?: number
   onClose: () => void
-}
-
-// Viewer panoramique intégré (image équirectangulaire d'un point 360).
-function Panorama360({ src }: { src: string }) {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-    const viewer = window.pannellum.viewer(container, {
-      type: 'equirectangular',
-      panorama: src,
-      autoLoad: true,
-      autoRotate: -2,
-      compass: false,
-      showZoomCtrl: false,
-      showFullscreenCtrl: false,
-      crossOrigin: 'anonymous',
-    })
-    return () => viewer.destroy()
-  }, [src])
-
-  return (
-    <div
-      ref={containerRef}
-      className="lightbox-media lightbox-360"
-      // Le drag du panorama ne doit ni fermer la lightbox ni déclencher
-      // le swipe de navigation.
-      onClick={(event) => event.stopPropagation()}
-      onTouchStart={(event) => event.stopPropagation()}
-      onTouchEnd={(event) => event.stopPropagation()}
-    />
-  )
 }
 
 export function MediaLightbox({
@@ -132,7 +82,11 @@ export function MediaLightbox({
 
       <div className="lightbox-stage" onClick={(event) => event.stopPropagation()}>
         {media.kind === '360' ? (
-          <Panorama360 key={media.src} src={media.src} />
+          <Panorama360
+            key={media.src}
+            src={media.src}
+            className="lightbox-media lightbox-360"
+          />
         ) : media.kind === 'video' ? (
           <video
             key={media.src}
