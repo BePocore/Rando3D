@@ -773,8 +773,16 @@ export function TrailMap({
     if (selectedKeyRef.current === key) return
     selectedKeyRef.current = key
 
+    // On vise la hauteur réelle du terrain sous le point (sinon, en terrain 3D,
+    // la cible reste au niveau de la mer et la caméra cadre à côté du marqueur).
+    const carto = Cartographic.fromDegrees(selectedPoint.lng, selectedPoint.lat)
+    const terrainHeight = viewer.scene.globe.getHeight(carto) ?? 0
     const target = new BoundingSphere(
-      Cartesian3.fromDegrees(selectedPoint.lng, selectedPoint.lat, 0),
+      Cartesian3.fromDegrees(
+        selectedPoint.lng,
+        selectedPoint.lat,
+        terrainHeight,
+      ),
       35,
     )
     viewer.camera.flyToBoundingSphere(target, {
