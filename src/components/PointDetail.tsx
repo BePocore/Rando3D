@@ -178,7 +178,10 @@ export function PointDetail({
           onClick={() =>
             onShowMedia?.({
               src: media.src,
-              kind: media.kind,
+              kind:
+                point.type === '360' && media.kind === 'image'
+                  ? '360'
+                  : media.kind,
               title: point.title,
             })
           }

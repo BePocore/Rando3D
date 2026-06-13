@@ -852,6 +852,13 @@
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55);
 }
 
+.lightbox-360 {
+  width: min(1400px, 94vw);
+  height: min(80vh, 900px);
+  overflow: hidden;
+  background: #000;
+}
+
 .lightbox-caption {
   margin: 0;
   display: flex;

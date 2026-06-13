@@ -53,7 +53,7 @@ import { useFramedThumbnails } from './useFramedThumbnails'
 
 export type LightboxMedia = {
   src: string
-  kind: MediaKind
+  kind: MediaKind | '360'
   title?: string
 }
 
@@ -451,8 +451,11 @@ function App() {
     (point: TrailPoint) => {
       const media = resolvePointMedia(point, mediaLibrary)
       if (media && (media.kind === 'image' || media.kind === 'video')) {
+        // Image d'un point 360 : viewer panoramique au lieu de l'image plate.
+        const kind =
+          point.type === '360' && media.kind === 'image' ? '360' : media.kind
         setLightbox({
-          items: [{ src: media.src, kind: media.kind, title: point.title }],
+          items: [{ src: media.src, kind, title: point.title }],
           index: 0,
         })
         return
@@ -471,7 +474,9 @@ function App() {
           if (!media || (media.kind !== 'image' && media.kind !== 'video')) {
             return null
           }
-          return { src: media.src, kind: media.kind, title: point.title }
+          const kind =
+            point.type === '360' && media.kind === 'image' ? '360' : media.kind
+          return { src: media.src, kind, title: point.title }
         })
         .filter((item): item is LightboxMedia => item !== null)
 
