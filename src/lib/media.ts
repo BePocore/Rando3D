@@ -382,29 +382,14 @@ export const createImportedMedia = async (
   const kind = mediaKindFromFile(file)
   if (!kind) return null
   const url = URL.createObjectURL(file)
-
-  if (kind === 'image') {
-    const metadata = await extractImageMetadata(file)
-    // On ne décode l'image en pleine résolution que si l'EXIF n'a pas fourni
-    // les dimensions : décoder chaque photo plein format sature la mémoire du
-    // navigateur (et fait planter/recharger l'onglet) lors d'un import en lot.
-    const dimensions =
-      metadata.width && metadata.height ? {} : await readImageDimensions(url)
-
-    return {
-      id: `${file.name}-${file.size}-${file.lastModified}`,
-      name: file.name,
-      url,
-      kind,
-      size: file.size,
-      ...(file.type ? { mimeType: file.type } : {}),
-      ...metadata,
-      ...dimensions,
-    }
-  }
-
-  const metadata = await extractVideoMetadata(file)
-  const dimensions = await readVideoDimensions(url)
+  const metadata =
+    kind === 'image'
+      ? await extractImageMetadata(file)
+      : await extractVideoMetadata(file)
+  const dimensions =
+    kind === 'image'
+      ? await readImageDimensions(url)
+      : await readVideoDimensions(url)
 
   return {
     id: `${file.name}-${file.size}-${file.lastModified}`,
