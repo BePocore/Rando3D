@@ -9,6 +9,7 @@ import {
   Cartographic,
   Color,
   ConstantPositionProperty,
+  ConstantProperty,
   CustomDataSource,
   EllipsoidTerrainProvider,
   HeadingPitchRange,
@@ -127,6 +128,16 @@ const thumbnailFrameWidth = framedCanvasWidth
 const thumbnailFrameHeight = framedCanvasHeight
 // Échelle plus stable selon le zoom (1 → 0.85) pour des vignettes homogènes.
 const thumbnailScaleByDistance = new NearFarScalar(1_000, 1, 160_000, 0.85)
+// Constantes du badge de comptage des clusters, hissées hors du clusterEvent
+// (qui se déclenche à chaque zoom/pan) pour éviter de réallouer à chaque fois.
+const clusterBadgeFont = '700 13px Inter, system-ui, sans-serif'
+const clusterBadgeColor = Color.fromCssColorString('#0c1512').withAlpha(0.92)
+const clusterBadgePadding = new Cartesian2(7, 5)
+const clusterLabelOffset = new Cartesian2(
+  framedCardWidth / 2 - 2,
+  -(framedCardHeight / 2 - 2),
+)
+const clusterLabelOffsetZero = new Cartesian2(0, 0)
 const arcGisTerrainUrl =
   'https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer'
 
@@ -159,6 +170,27 @@ const computeBounds = (track: TrackPoint[], points: TrailPoint[]): Rectangle => 
 
 const pointEntityId = (point: TrailPoint, index: number): string =>
   `trail-point-${point.id ?? index}`
+
+// État d'affichage d'un point : a-t-il un média (→ source clusterisée) et sa
+// vignette encadrée est-elle déjà prête ? Centralisé pour que l'effet structurel
+// et l'effet de rafraîchissement d'image partagent exactement la même logique.
+const thumbForPoint = (
+  point: TrailPoint,
+  mediaLibrary: ImportedMedia[],
+  videoPosters: Record<string, string>,
+  framedThumbnails: Record<string, string>,
+): { hasMedia: boolean; framed: string | undefined } => {
+  const media = resolvePointMedia(point, mediaLibrary)
+  if (!media) return { hasMedia: false, framed: undefined }
+  const thumbnailSrc =
+    media.kind === 'image'
+      ? media.src
+      : media.kind === 'video'
+        ? videoPosters[media.src]
+        : undefined
+  const framed = thumbnailSrc ? framedThumbnails[thumbnailSrc] : undefined
+  return { hasMedia: true, framed }
+}
 
 const flyToTrail = (
   viewer: Viewer,
@@ -249,6 +281,10 @@ export function TrailMap({
   const mediaLibraryRef = useRef(mediaLibrary)
   const videoPostersRef = useRef(videoPosters)
   const framedThumbnailsRef = useRef(framedThumbnails)
+  // Vignette encadrée déjà appliquée à l'entité (id → src), pour ne mettre à
+  // jour que les billboards dont la vignette vient d'arriver (rafraîchissement
+  // incrémental, sans reconstruire la carte).
+  const thumbAppliedRef = useRef(new Map<string, string>())
 
   useEffect(() => {
     onMarkerClickRef.current = onMarkerClick
@@ -552,26 +588,23 @@ export function TrailMap({
         // et mise à l'échelle avec la vignette (reste accrochée à tous zooms).
         cluster.label.show = true
         cluster.label.text = String(clustered.length)
-        cluster.label.font = '700 13px Inter, system-ui, sans-serif'
+        cluster.label.font = clusterBadgeFont
         cluster.label.fillColor = Color.WHITE
         cluster.label.style = LabelStyle.FILL
         cluster.label.showBackground = true
-        cluster.label.backgroundColor = Color.fromCssColorString('#0c1512').withAlpha(0.92)
-        cluster.label.backgroundPadding = new Cartesian2(7, 5)
+        cluster.label.backgroundColor = clusterBadgeColor
+        cluster.label.backgroundPadding = clusterBadgePadding
         cluster.label.horizontalOrigin = HorizontalOrigin.CENTER
         cluster.label.verticalOrigin = VerticalOrigin.CENTER
         cluster.label.disableDepthTestDistance = Number.POSITIVE_INFINITY
         if (anchorPosition) cluster.label.position = anchorPosition
         if (framed) {
           // Coin haut-droit de la carte (centrée sur la coordonnée).
-          cluster.label.pixelOffset = new Cartesian2(
-            framedCardWidth / 2 - 2,
-            -(framedCardHeight / 2 - 2),
-          )
+          cluster.label.pixelOffset = clusterLabelOffset
           cluster.label.scaleByDistance = thumbnailScaleByDistance
           cluster.label.pixelOffsetScaleByDistance = thumbnailScaleByDistance
         } else {
-          cluster.label.pixelOffset = new Cartesian2(0, 0)
+          cluster.label.pixelOffset = clusterLabelOffsetZero
         }
       },
     )
@@ -663,18 +696,15 @@ export function TrailMap({
     viewer.scene.requestRender()
   }, [basemap])
 
+  // Effet A — tracés (polylignes). Ne se rejoue que si les traces changent,
+  // donc plus à chaque vignette générée.
   useEffect(() => {
     const viewer = viewerRef.current
-    const pointSource = pointSourceRef.current
-    const poiSource = poiSourceRef.current
-    if (!viewer || viewer.isDestroyed() || !pointSource || !poiSource) return
+    if (!viewer || viewer.isDestroyed()) return
 
+    // Seules les polylignes vivent dans viewer.entities (les marqueurs sont dans
+    // les CustomDataSource), donc removeAll ne touche que les tracés.
     viewer.entities.removeAll()
-    pointSource.entities.removeAll()
-    poiSource.entities.removeAll()
-    pointsByEntityId.current.clear()
-
-    // Une polyligne colorée par trace (jour 1, jour 2, ...).
     traces.forEach((trace, traceIndex) => {
       const renderedTrack = simplifyTrack(trace.points, 1.5, 6_000)
       const routePositions = renderedTrack.map((point) =>
@@ -705,31 +735,46 @@ export function TrailMap({
         },
       })
     })
+    viewer.scene.requestRender()
+  }, [traces])
+
+  // Effet B — structure des points : chaque entité est créée une seule fois.
+  // Routage par TYPE de média (et non par disponibilité de la vignette) :
+  //   média → source clusterisée ; POI sans média → source non clusterisée.
+  // Ne dépend PAS de videoPosters/framedThumbnails (gérés par l'effet C), donc
+  // ne reconstruit plus toute la carte à chaque vignette générée.
+  useEffect(() => {
+    const viewer = viewerRef.current
+    const pointSource = pointSourceRef.current
+    const poiSource = poiSourceRef.current
+    if (!viewer || viewer.isDestroyed() || !pointSource || !poiSource) return
+
+    pointSource.entities.removeAll()
+    poiSource.entities.removeAll()
+    pointsByEntityId.current.clear()
+    thumbAppliedRef.current.clear()
 
     const heightReference = useWorldTerrain
       ? HeightReference.CLAMP_TO_GROUND
       : HeightReference.NONE
 
-    // Vignettes média → source clusterisée (se regroupent entre elles).
-    // Pins POI → source non clusterisée, toujours visibles à leur position.
     points.forEach((point, index) => {
       const id = pointEntityId(point, index)
       pointsByEntityId.current.set(id, point)
-      const media = resolvePointMedia(point, mediaLibrary)
-      const poster =
-        media?.kind === 'video' ? videoPosters[media.src] : undefined
-      const thumbnailSrc = media?.kind === 'image' ? media.src : poster
-      // On n'affiche la carte média que lorsque sa version encadrée est prête,
-      // sinon on garde le pin (évite une vignette brute sans cadre/ancrage).
-      const framed = thumbnailSrc ? framedThumbnails[thumbnailSrc] : undefined
+      const { hasMedia, framed } = thumbForPoint(
+        point,
+        mediaLibraryRef.current,
+        videoPostersRef.current,
+        framedThumbnailsRef.current,
+      )
       const showThumbnail = Boolean(framed)
-      const position = Cartesian3.fromDegrees(point.lng, point.lat, 0)
+      if (showThumbnail) thumbAppliedRef.current.set(id, framed as string)
 
-      const target = showThumbnail ? pointSource : poiSource
+      const target = hasMedia ? pointSource : poiSource
       target.entities.add({
         id,
         name: point.title,
-        position,
+        position: Cartesian3.fromDegrees(point.lng, point.lat, 0),
         billboard: {
           image: showThumbnail
             ? (framed as string)
@@ -755,7 +800,37 @@ export function TrailMap({
       didInitialFitRef.current = true
       flyToTrail(viewer, track, points, 0)
     }
-  }, [mediaLibrary, points, track, traces, videoPosters, framedThumbnails])
+  }, [mediaLibrary, points, track])
+
+  // Effet C — rafraîchissement d'image : quand une vignette encadrée (ou un
+  // poster vidéo) vient d'arriver, on met à jour SUR PLACE le billboard concerné
+  // au lieu de reconstruire la carte.
+  useEffect(() => {
+    const viewer = viewerRef.current
+    const pointSource = pointSourceRef.current
+    if (!viewer || viewer.isDestroyed() || !pointSource) return
+
+    let changed = false
+    pointsByEntityId.current.forEach((point, id) => {
+      const { framed } = thumbForPoint(
+        point,
+        mediaLibraryRef.current,
+        videoPostersRef.current,
+        framedThumbnailsRef.current,
+      )
+      if (!framed || thumbAppliedRef.current.get(id) === framed) return
+      const entity = pointSource.entities.getById(id)
+      if (!entity?.billboard) return
+
+      entity.billboard.image = new ConstantProperty(framed)
+      entity.billboard.width = new ConstantProperty(thumbnailFrameWidth)
+      entity.billboard.height = new ConstantProperty(thumbnailFrameHeight)
+      entity.billboard.verticalOrigin = new ConstantProperty(VerticalOrigin.CENTER)
+      thumbAppliedRef.current.set(id, framed)
+      changed = true
+    })
+    if (changed) viewer.scene.requestRender()
+  }, [framedThumbnails, videoPosters])
 
   useEffect(() => {
     const viewer = viewerRef.current

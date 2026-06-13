@@ -135,6 +135,28 @@ const generatePoster = (src: string): Promise<string | null> =>
     video.load()
   })
 
+// File à concurrence limitée : chaque capture attache un <video> au DOM et lit
+// le flux, donc on n'en lance que quelques-unes à la fois (anti-saccade / mémoire).
+const maxConcurrentPosters = 2
+let activePosters = 0
+const posterQueue: Array<() => void> = []
+
+const schedulePoster = (src: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    const run = () => {
+      activePosters += 1
+      void generatePoster(src)
+        .catch(() => null)
+        .then((result) => {
+          activePosters -= 1
+          resolve(result)
+          posterQueue.shift()?.()
+        })
+    }
+    if (activePosters < maxConcurrentPosters) run()
+    else posterQueue.push(run)
+  })
+
 export function useVideoPosters(
   points: TrailPoint[],
   mediaLibrary: ImportedMedia[],
@@ -159,7 +181,7 @@ export function useVideoPosters(
         }
         return
       }
-      void generatePoster(src).then((dataUrl) => {
+      void schedulePoster(src).then((dataUrl) => {
         if (cancelled || !dataUrl) return
         posterCache.set(src, dataUrl)
         setPosters((current) => ({ ...current, [src]: dataUrl }))

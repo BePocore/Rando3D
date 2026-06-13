@@ -431,6 +431,96 @@ function App() {
       .map((entry) => entry.point)
   }, [points, traces])
 
+  // Autosave discrète : on garde un instantané à jour de tout ce qui part dans
+  // le projet pour pouvoir publier en arrière-plan après un import, sans
+  // dépendre des closures des handlers.
+  const autosaveTimerRef = useRef<number | null>(null)
+  const latestProjectRef = useRef({
+    points,
+    traces,
+    mediaLibrary,
+    accessCode,
+    pointsSourceName,
+    adminPassword,
+  })
+  useEffect(() => {
+    latestProjectRef.current = {
+      points,
+      traces,
+      mediaLibrary,
+      accessCode,
+      pointsSourceName,
+      adminPassword,
+    }
+  })
+
+  const saveProjectSilently = useCallback(async () => {
+    const snapshot = latestProjectRef.current
+    if (!snapshot.adminPassword) return
+
+    try {
+      const project: TrailProject = {
+        track: snapshot.traces.flatMap((trace) => trace.points),
+        traces: snapshot.traces,
+        accessCode: snapshot.accessCode.trim() || undefined,
+        points: exportablePoints(snapshot.points),
+        mediaLibrary: snapshot.mediaLibrary.filter(
+          (media) => !media.url.startsWith('blob:'),
+        ),
+        trackSourceName:
+          snapshot.traces.map((trace) => trace.name).join(' · ') || 'Traces',
+        pointsSourceName: snapshot.pointsSourceName,
+        savedAt: new Date().toISOString(),
+      }
+
+      setSaveStatus('Sauvegarde automatique…')
+      const response = await fetch('/api/project', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': snapshot.adminPassword,
+        },
+        body: JSON.stringify(project),
+      })
+
+      if (!response.ok) {
+        const result = (await response.json().catch(() => null)) as {
+          message?: string
+        } | null
+        throw new Error(result?.message ?? 'Sauvegarde auto impossible.')
+      }
+      setSaveStatus('Modifs sauvegardées automatiquement.')
+    } catch (saveError) {
+      setSaveStatus(
+        saveError instanceof Error
+          ? `Sauvegarde auto : ${saveError.message}`
+          : 'Sauvegarde auto impossible.',
+      )
+    }
+  }, [])
+
+  // Publie en arrière-plan ~1,5 s après le dernier import (debounce), pour ne
+  // plus perdre des médias déjà envoyés si la page se recharge.
+  const scheduleAutosave = useCallback(() => {
+    if (!latestProjectRef.current.adminPassword) return
+    if (autosaveTimerRef.current !== null) {
+      window.clearTimeout(autosaveTimerRef.current)
+    }
+    autosaveTimerRef.current = window.setTimeout(() => {
+      autosaveTimerRef.current = null
+      void saveProjectSilently()
+    }, 1500)
+  }, [saveProjectSilently])
+
+  useEffect(
+    () => () => {
+      if (autosaveTimerRef.current !== null) {
+        window.clearTimeout(autosaveTimerRef.current)
+      }
+    },
+    [],
+  )
+
   const handleSelectPoint = useCallback((point: TrailPoint) => {
     setSelectedPoint(point)
     setIsPanelOpen(true)
@@ -807,7 +897,8 @@ function App() {
         ? `${importedMedia.length}/${mediaFiles.length} média(s) envoyé(s). Voir le rapport.`
         : 'Medias envoyes. Publie la carte pour partager les points.',
     )
-  }, [adminPassword, points, combinedPoints])
+    if (importedMedia.length > 0) scheduleAutosave()
+  }, [adminPassword, points, combinedPoints, scheduleAutosave])
 
   const handleDismissReport = useCallback(() => {
     setImportReport(null)
@@ -878,6 +969,7 @@ function App() {
         )
         setError(null)
         setSaveStatus('Média attaché au point. Publie la carte pour partager.')
+        scheduleAutosave()
       } catch (uploadError) {
         setSaveStatus(
           uploadError instanceof Error
@@ -889,7 +981,7 @@ function App() {
         setIsUploading(false)
       }
     },
-    [adminPassword],
+    [adminPassword, scheduleAutosave],
   )
 
   const handleAddPoint = useCallback((point: TrailPoint) => {
