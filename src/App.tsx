@@ -274,6 +274,18 @@ function App() {
   const [accessGranted, setAccessGranted] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  // Pendant un import, le state (points + médias) n'est pas encore publié :
+  // on bloque le rechargement accidentel pour ne pas tout perdre.
+  useEffect(() => {
+    if (!isUploading) return
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warnBeforeUnload)
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload)
+  }, [isUploading])
+
   useEffect(() => {
     const loadTrail = async () => {
       try {

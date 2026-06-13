@@ -284,11 +284,13 @@ export function TrailMap({
       shouldAnimate: false,
       requestRenderMode: true,
       maximumRenderTimeChange: Number.POSITIVE_INFINITY,
-      msaaSamples: coarsePointer ? 2 : 4,
+      msaaSamples: coarsePointer ? 1 : 4,
       useBrowserRecommendedResolution: false,
       contextOptions: {
         webgl: {
-          antialias: true,
+          // Pas d'antialias matériel sur mobile : un framebuffer multisample en
+          // moins, le FXAA lisse déjà les bords. Économie mémoire sur iOS.
+          antialias: !coarsePointer,
           powerPreference: 'high-performance',
         },
       },
@@ -298,9 +300,13 @@ export function TrailMap({
     container.dataset.renderDpr = targetPixelRatio.toFixed(2)
     viewer.scene.postProcessStages.fxaa.enabled = true
     viewer.scene.globe.maximumScreenSpaceError = coarsePointer ? 2 : 1.5
-    viewer.scene.globe.tileCacheSize = coarsePointer ? 260 : 420
+    // Sur mobile (iOS Safari surtout), chaque tuile de terrain est une texture
+    // en mémoire GPU. Un cache trop gros + le préchargement des tuiles voisines
+    // poussent l'onglet au-delà de la limite mémoire d'iOS, qui le recharge
+    // alors silencieusement. On réduit donc fortement l'empreinte sur mobile.
+    viewer.scene.globe.tileCacheSize = coarsePointer ? 100 : 420
     viewer.scene.globe.preloadAncestors = true
-    viewer.scene.globe.preloadSiblings = true
+    viewer.scene.globe.preloadSiblings = !coarsePointer
     viewer.scene.globe.depthTestAgainstTerrain = false
     viewer.scene.globe.baseColor = Color.fromCssColorString('#c7d1cc')
     viewer.scene.backgroundColor = Color.fromCssColorString('#b9c8c1')
@@ -494,8 +500,9 @@ export function TrailMap({
     const pointSource = new CustomDataSource('points')
     void viewer.dataSources.add(pointSource)
     pointSource.clustering.enabled = true
-    // pixelRange ≥ demi-largeur vignette (84/2=42) pour que deux thumbnails
-    // ne se chevauchent visuellement qu'en étant déjà regroupées.
+    // pixelRange : distance écran (px) en-deçà de laquelle deux vignettes se
+    // regroupent. Plus c'est bas, plus les groupes éclatent tôt — mais plus de
+    // vignettes sont dessinées en même temps (coût GPU). 50 = bon compromis.
     pointSource.clustering.pixelRange = 50
     pointSource.clustering.minimumClusterSize = 2
     pointSource.clustering.clusterBillboards = true
